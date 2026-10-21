@@ -96,7 +96,22 @@ try:
     missing = [(s, d) for s, c in comp.items() for d in ((c.get("depends_on") or {}) if isinstance(c.get("depends_on"), dict) else {x: 1 for x in c.get("depends_on", [])}) if d not in comp]
     check("compose depends_on targets exist", not missing, str(missing))
     ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-    check("CI has backend/web/e2e/docker-build jobs", {"backend", "web", "e2e", "docker-build"} <= set(ci["jobs"]))
+    check("CI has backend/web/e2e/docker-build/ci-gate jobs", {"backend", "web", "e2e", "docker-build", "ci-gate"} <= set(ci["jobs"]))
+    runs = lambda job: "\n".join(str(st.get("run", "")) for st in ci["jobs"][job]["steps"])
+    check("CI enforces lockfiles in backend, web, e2e and docker-build",
+          "test -f requirements.lock.txt" in runs("backend") and "test -f package-lock.json" in runs("web")
+          and "test -f requirements.lock.txt" in runs("e2e") and "test -f requirements.lock.txt" in runs("docker-build"))
+    check("CI installs strictly from locks (pip -c lock, npm ci)", "-c requirements.lock.txt" in runs("backend") and "npm ci" in runs("web") and "npm ci" in runs("e2e"))
+    check("CI backend runs verify_locks.py and the skip guard with REQUIRE_INTEGRATION=1",
+          "verify_locks.py" in runs("backend") and str(ci["jobs"]["backend"]["env"].get("REQUIRE_INTEGRATION")) == "1" and "skipped" in runs("backend"))
+    check("E2E is not gated behind other jobs (cannot be hidden by an earlier failure)", "needs" not in ci["jobs"]["e2e"])
+    check("ci-gate depends on every job and rejects non-success (incl. skipped)",
+          set(ci["jobs"]["ci-gate"]["needs"]) == {"backend", "web", "e2e", "docker-build"} and '"$r" = "success"' in runs("ci-gate") and ci["jobs"]["ci-gate"].get("if") == "always()")
+    boot = yaml.safe_load((ROOT / ".github/workflows/bootstrap-locks.yml").read_text())
+    check("bootstrap-locks workflow parses and is manual-only", "lock" in boot["jobs"] and "workflow_dispatch" in (boot.get(True) or boot.get("on") or {}))
+    import re as _re
+    refs = _re.findall(r"uses:\s*([\w./-]+)@(\S+)", (ROOT / ".github/workflows/ci.yml").read_text() + (ROOT / ".github/workflows/bootstrap-locks.yml").read_text())
+    check("every action is pinned to an explicit ref", all(r for _, r in refs) and len(refs) > 0, f"{len(refs)} uses")
 except ImportError:
     check("pyyaml available", False)
 for f in ["apps/web/package.json", "apps/web/tsconfig.json", "apps/web/.eslintrc.json", "apps/web/.prettierrc.json"]:

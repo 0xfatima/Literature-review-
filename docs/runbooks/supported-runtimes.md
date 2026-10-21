@@ -11,6 +11,9 @@
 | Docker Compose | v2 (`docker compose`) | scripts | no |
 | Browsers (E2E) | Chromium via Playwright | `playwright.config.ts` | no |
 
+## Generating the lockfiles
+Actions → **Generate lockfiles (manual)** (`.github/workflows/bootstrap-locks.yml`), or `scripts/lock.sh` locally. Both run `scripts/verify_locks.py` (exact pins, transitive closure, npm integrity). The exact interpreter/npm versions used are recorded in `docs/runbooks/LOCK_ENVIRONMENT.txt`. Lockfiles are authoritative for Linux x86_64/CPython 3.12; platform-specific wheels on other OSes may differ.
+
 ## Pinning policy
 - Backend: `requirements.lock.txt` = exact output of `pip freeze` from a clean venv created by `scripts/lock.sh` (direct **and** transitive). Installs use `pip install -c requirements.lock.txt -e ".[dev]"`, followed by `pip check`.
 - Frontend: `apps/web/package-lock.json`; installs use `npm ci` only (fails if the lock and `package.json` disagree).

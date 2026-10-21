@@ -34,7 +34,7 @@ docker compose up -d postgres redis          # or your own Postgres 16 + Redis 7
 ```
 
 ## Validation (Phase 1 is NOT yet validated)
-`scripts/lock.sh` (pin dependencies; needs network) then `python scripts/validate_all.py` (full run with evidence in `validation-evidence/`; fails on any skipped test). See `docs/implementation-reports/validation-001.md` and `docs/runbooks/supported-runtimes.md`.
+Lockfiles do not exist yet: run the **Generate lockfiles (manual)** workflow (or `scripts/lock.sh` locally with network), commit the result (CI fails without it, by design), then `python scripts/validate_all.py` (full run with evidence in `validation-evidence/`; fails on any skipped test). See `docs/implementation-reports/validation-001.md` and `docs/runbooks/supported-runtimes.md`.
 
 ## Checks and tests
 

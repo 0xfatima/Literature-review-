@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -32,11 +35,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.12", cache: pip }
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: requirements.lock.txt }
       - name: Lockfile must exist (dependencies are pinned, never floating)
         run: test -f requirements.lock.txt
       - run: pip install -c requirements.lock.txt -e ".[dev]"
       - run: pip check
+      - name: Lockfiles are exact, complete (transitive) and consistent with manifests
+        run: python scripts/verify_locks.py
       - name: Stdlib-only tests (fast, no services)
         run: python scripts/run_stdlib_tests.py
       - run: ruff check services/api
@@ -81,10 +86,11 @@ jobs:
         env: { API_BASE_URL: "http://localhost:8000" }
 
   e2e:
-    runs-on: ubuntu-latest
-    needs: [backend, web]
+    runs-on: ubuntu-latest   # independent of backend/web so E2E results are never hidden by an earlier failure
     steps:
       - uses: actions/checkout@v4
+      - name: Lockfiles must exist (no floating dependencies in images)
+        run: test -f requirements.lock.txt && test -f apps/web/package-lock.json
       - name: Start stack
         run: |
           cp .env.example .env
@@ -117,5 +123,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Lockfiles must exist
+        run: test -f requirements.lock.txt && test -f apps/web/package-lock.json
       - run: docker build -f infra/docker/api.Dockerfile -t srs-api .
       - run: docker build -f infra/docker/worker.Dockerfile -t srs-worker .
+      - run: docker build -f infra/docker/web.Dockerfile -t srs-web .
+
+  # Branch protection should require ONLY this job. A skipped, cancelled or failed job is never green.
+  ci-gate:
+    if: always()
+    needs: [backend, web, e2e, docker-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job must have succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            [ "$r" = "success" ] || { echo "::error::non-success result: $r (skipped counts as failure)"; exit 1; }
+          done

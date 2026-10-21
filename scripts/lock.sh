@@ -14,9 +14,13 @@ pip install -e ".[dev]"
 pip freeze --exclude-editable | LC_ALL=C sort > requirements.lock.txt
 pip check
 ( cd apps/web && npm install --package-lock-only --ignore-scripts && npm ci --ignore-scripts )
+.venv-lock/bin/python scripts/verify_locks.py   # fails the script if the locks are incomplete/inconsistent
 {
   echo "locked_at_utc: $(date -u +%FT%TZ)"
   echo "python: $(python --version 2>&1)"; echo "pip: $(pip --version)"
   echo "node: $(node --version)"; echo "npm: $(npm --version)"
+  echo "os: $(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME") $(uname -m)"
+  echo "python_pins: $(wc -l < requirements.lock.txt)"
+  echo "npm_locked_packages: $(node -e "console.log(Object.keys(require('./apps/web/package-lock.json').packages).length-1)")"
 } | tee docs/runbooks/LOCK_ENVIRONMENT.txt
 echo "Wrote requirements.lock.txt ($(wc -l < requirements.lock.txt) pins) and apps/web/package-lock.json. COMMIT THEM."
