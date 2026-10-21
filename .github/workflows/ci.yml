@@ -1,0 +1,121 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: srs, POSTGRES_PASSWORD: srs_ci, POSTGRES_DB: srs_test }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U srs -d srs_test" --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      APP_ENV: test
+      REQUIRE_INTEGRATION: "1"     # a missing DB FAILS the run; integration tests can never be silently skipped
+      DATABASE_URL: postgresql+psycopg://srs:srs_ci@localhost:5432/srs_test
+      TEST_DATABASE_URL: postgresql+psycopg://srs:srs_ci@localhost:5432/srs_test
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - name: Lockfile must exist (dependencies are pinned, never floating)
+        run: test -f requirements.lock.txt
+      - run: pip install -c requirements.lock.txt -e ".[dev]"
+      - run: pip check
+      - name: Stdlib-only tests (fast, no services)
+        run: python scripts/run_stdlib_tests.py
+      - run: ruff check services/api
+      - run: ruff format --check services/api
+      - run: mypy
+      - name: Migrations apply on a clean database (up, down, up)
+        working-directory: services/api
+        run: alembic upgrade head && alembic downgrade base && alembic upgrade head
+      - name: Unit + integration tests with coverage (skips are failures)
+        run: |
+          pytest services/api/tests -rs --junitxml=pytest.xml --cov=app --cov-report=term-missing --cov-report=xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          r = ET.parse("pytest.xml").getroot(); s = r if r.tag == "testsuite" else r.find("testsuite")
+          t, sk = int(s.get("tests")), int(s.get("skipped"))
+          print(f"tests={t} skipped={sk}")
+          assert sk == 0 and t >= 54, "tests were skipped or too few executed"
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-evidence
+          path: |
+            coverage.xml
+            pytest.xml
+          if-no-files-found: ignore
+
+  web:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/web } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Lockfile must exist
+        run: test -f package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - run: npm run build
+        env: { API_BASE_URL: "http://localhost:8000" }
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [backend, web]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack
+        run: |
+          cp .env.example .env
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=srs_ci/; s/^RATE_LIMIT_REGISTER_PER_HOUR=.*/RATE_LIMIT_REGISTER_PER_HOUR=500/' .env
+          docker compose up -d --build
+          for i in $(seq 1 60); do
+            curl -fsS localhost:8000/readyz >/dev/null && curl -fsS localhost:8000/healthz/worker >/dev/null && break
+            sleep 4
+          done
+          curl -fsS localhost:8000/readyz && curl -fsS localhost:8000/healthz/worker
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - working-directory: apps/web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          E2E_BASE_URL=http://localhost:3000 PLAYWRIGHT_JSON_OUTPUT_NAME=pw.json npx playwright test --reporter=json,list
+          node -e "const s=require('./pw.json').stats; console.log(s); if(s.unexpected||s.skipped||s.flaky||s.expected<5) process.exit(1)"
+      - name: Live drills (ownership, CSRF, audit immutability, session revocation, IP limit, broker outage, worker SIGKILL)
+        run: |
+          sleep 65
+          python scripts/drills.py run all
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: apps/web/playwright-report }
+      - if: failure()
+        run: docker compose logs --no-color | tail -200
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f infra/docker/api.Dockerfile -t srs-api .
+      - run: docker build -f infra/docker/worker.Dockerfile -t srs-worker .

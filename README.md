@@ -33,12 +33,15 @@ docker compose up -d postgres redis          # or your own Postgres 16 + Redis 7
 (cd apps/web && npm install && npm run dev)                              # terminal 3
 ```
 
+## Validation (Phase 1 is NOT yet validated)
+`scripts/lock.sh` (pin dependencies; needs network) then `python scripts/validate_all.py` (full run with evidence in `validation-evidence/`; fails on any skipped test). See `docs/implementation-reports/validation-001.md` and `docs/runbooks/supported-runtimes.md`.
+
 ## Checks and tests
 
 | Command | What it runs | Needs |
 |---|---|---|
 | `scripts/check.sh` | ruff, ruff format, mypy, pytest unit, web lint/typecheck/vitest | `pip install -e ".[dev]"`, `npm install` in `apps/web` |
-| `python scripts/run_stdlib_tests.py` | the 26 tests marked `# stdlib-only` (no packages) | Python only |
+| `python scripts/run_stdlib_tests.py` | the 33 tests marked `# stdlib-only` (no packages) | Python only |
 | `python scripts/validate_static.py` | syntax / import / config-consistency checks | Python (+ `tsc` optional) |
 | `scripts/test-integration.sh` | DB-backed API, ownership, audit, jobs, migration tests | real PostgreSQL (`TEST_DATABASE_URL`; **drops schema `public`**) |
 | `scripts/test-e2e.sh` | Playwright browser tests against the compose stack | Docker, Node, Chromium download |

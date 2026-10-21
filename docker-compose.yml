@@ -1,0 +1,65 @@
+# Local development stack. Secrets come from .env (copy .env.example). Nothing here is production config.
+name: srs
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: srs
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: srs
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U srs -d srs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:                         # one-shot: applies Alembic migrations then exits
+    build: { context: ., dockerfile: infra/docker/api.Dockerfile }
+    env_file: .env
+    environment: &dockerenv
+      DATABASE_URL: postgresql+psycopg://srs:${POSTGRES_PASSWORD}@postgres:5432/srs
+      REDIS_URL: redis://redis:6379/0
+      TRUSTED_PROXY_HOPS: "1"      # api is reached only through the Next.js proxy
+    command: ["alembic", "upgrade", "head"]
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+
+  api:
+    build: { context: ., dockerfile: infra/docker/api.Dockerfile }
+    env_file: .env
+    environment: *dockerenv
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  worker:
+    build: { context: ., dockerfile: infra/docker/worker.Dockerfile }
+    env_file: .env
+    environment: *dockerenv
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+      args: { API_BASE_URL: http://api:8000 }
+    environment: { API_BASE_URL: "http://api:8000" }
+    ports: ["3000:3000"]
+    depends_on: [api]
+
+volumes:
+  pgdata:

@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "systematic-review-scientist"
+version = "0.1.0"
+description = "Human-in-the-loop systematic review workbench (backend + worker)"
+requires-python = ">=3.12"
+# NOTE: lower bounds only. No lockfile exists yet (authoring sandbox had no network).
+# First action with network access: generate and commit a lock (see docs/runbooks/local-development.md).
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+  "sqlalchemy>=2.0.25",
+  "alembic>=1.13",
+  "psycopg[binary,pool]>=3.1.18",
+  "celery>=5.3",
+  "redis>=5.0",
+  "argon2-cffi>=23.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "httpx>=0.27",
+  "ruff>=0.4",
+  "mypy>=1.9",
+]
+
+[tool.setuptools.packages.find]
+where = ["services/api"]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["services/api/tests"]
+pythonpath = ["services/api"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error::DeprecationWarning:app.*"]
+
+[tool.coverage.run]
+source = ["services/api/app"]
+branch = true
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["services/api"]
+extend-exclude = ["services/api/app/db/migrations/versions"]
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "BLE", "PERF"]
+ignore = ["B008", "S101"]   # B008: FastAPI Depends() defaults; S101: asserts in tests
+[tool.ruff.lint.per-file-ignores]
+"services/api/tests/**" = ["S105", "S106", "S311"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "services/api"
+packages = ["app"]
+strict = true
+plugins = ["pydantic.mypy"]
+# Justified relaxations (do not extend without a written reason):
+# - celery/kombu ship no type information we can rely on; argon2/redis may lack py.typed markers.
+[[tool.mypy.overrides]]
+module = ["celery.*", "kombu.*", "argon2.*", "redis.*"]
+ignore_missing_imports = true
+# - @celery_app.task is an untyped decorator because Celery is untyped above; only the task module needs this.
+[[tool.mypy.overrides]]
+module = ["app.jobs.tasks"]
+disallow_untyped_decorators = false
