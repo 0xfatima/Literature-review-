@@ -21,7 +21,7 @@ jobs:
         with: { node-version: "22" }
 
       - name: Resolve and pin everything (also runs scripts/verify_locks.py)
-        run: scripts/lock.sh
+        run: bash scripts/lock.sh
 
       - name: Prove the committed locks work with the SAME commands CI and Docker use
         run: |
