@@ -60,3 +60,6 @@ Celery tasks live in `app/jobs/` (one package for API and worker) rather than `s
 
 ## Known limitations (Phase 1)
 No lockfiles yet (generate on first networked install, see runbook) · no email verification, MFA or password-reset email · registration reveals whether an email is registered · account deletion not implemented · no OpenAPI→TypeScript client generation yet (API types are hand-written) · no research features yet (protocol, search, screening, PDFs…) · the chat panel is a labelled, disabled placeholder.
+
+
+lockfile generated 
