@@ -1,4 +1,5 @@
 """Liveness / readiness / worker health. Probes never call an LLM or external provider."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -29,6 +30,7 @@ def _check_db() -> str:
 def _check_redis(settings: Settings) -> str:
     try:
         import redis
+
         redis.Redis.from_url(settings.redis_url, socket_timeout=1, socket_connect_timeout=1).ping()
         return "ok"
     except Exception:  # noqa: BLE001
@@ -48,6 +50,7 @@ def worker_health(settings: Settings = Depends(get_settings)) -> JSONResponse:
     take the API out of rotation (the API can still serve reads and queue jobs)."""
     try:
         from app.jobs.celery_app import celery_app
+
         replies = celery_app.control.ping(timeout=settings.worker_health_timeout_s) or []
         workers = sorted(k for r in replies for k in r)
     except Exception:  # noqa: BLE001

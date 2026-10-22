@@ -22,14 +22,22 @@ log = logging.getLogger("app.request")
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.log_level)
-    app = FastAPI(title="Systematic Review Scientist API", version="0.1.0",
-                  docs_url="/docs" if settings.app_env != "production" else None, redoc_url=None)
+    app = FastAPI(
+        title="Systematic Review Scientist API",
+        version="0.1.0",
+        docs_url="/docs" if settings.app_env != "production" else None,
+        redoc_url=None,
+    )
     error_handlers.install(app)
 
     if settings.allowed_origins:  # exact allow-list; never a wildcard (enforced by settings checks)
-        app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True,
-                           allow_methods=["GET", "POST", "PATCH", "DELETE"],
-                           allow_headers=["Content-Type", "X-SRS-CSRF", "Idempotency-Key", "X-Correlation-ID"])
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.allowed_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PATCH", "DELETE"],
+            allow_headers=["Content-Type", "X-SRS-CSRF", "Idempotency-Key", "X-Correlation-ID"],
+        )
 
     @app.middleware("http")
     async def request_context(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
@@ -37,17 +45,26 @@ def create_app() -> FastAPI:
         token = set_correlation_id(cid)
         start = time.perf_counter()
         try:
-            reason = csrf_violation(request.method, {k.lower(): v for k, v in request.headers.items()},
-                                    settings.allowed_origins)
+            reason = csrf_violation(
+                request.method, {k.lower(): v for k, v in request.headers.items()}, settings.allowed_origins
+            )
+            response: Response
             if reason and request.url.path.startswith("/api/"):
-                response = JSONResponse(error_body("csrf_rejected", "Request rejected.", [{"issue": reason}]),
-                                        status_code=403)
+                response = JSONResponse(
+                    error_body("csrf_rejected", "Request rejected.", [{"issue": reason}]), status_code=403
+                )
             else:
                 response = await call_next(request)
             response.headers["X-Correlation-ID"] = cid
-            log.info("request", extra={"method": request.method, "path": request.url.path,  # no query string
-                                       "status": response.status_code,
-                                       "duration_ms": round((time.perf_counter() - start) * 1000, 1)})
+            log.info(
+                "request",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,  # no query string
+                    "status": response.status_code,
+                    "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+                },
+            )
             return response
         finally:
             reset_correlation_id(token)

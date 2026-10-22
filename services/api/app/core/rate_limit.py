@@ -1,5 +1,6 @@
 """Fixed-window rate limiting behind an interface. In-memory impl is stdlib-only (tests, single process);
 RedisRateLimiter is the shared implementation used when running multiple API replicas."""
+
 from __future__ import annotations
 
 import time
@@ -52,5 +53,6 @@ class RedisRateLimiter:
             return True, 0
         except Exception:  # noqa: BLE001 - deliberate fail-open, see class docstring
             import logging
+
             logging.getLogger(__name__).warning("rate limiter backend unavailable; failing open")
             return True, 0

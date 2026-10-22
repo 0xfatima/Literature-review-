@@ -3,6 +3,7 @@
 Envelope (all non-2xx responses):
   {"error": {"code": str, "message": str, "details": list|None, "correlation_id": str|None}}
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -14,8 +15,14 @@ class AppError(Exception):
     status_code = 500
     code = "internal_error"
 
-    def __init__(self, message: str | None = None, *, code: str | None = None,
-                 details: list[dict[str, Any]] | None = None, headers: dict[str, str] | None = None):
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        code: str | None = None,
+        details: list[dict[str, Any]] | None = None,
+        headers: dict[str, str] | None = None,
+    ):
         super().__init__(message or self.code)
         self.message = message or self.code
         if code:
@@ -52,5 +59,4 @@ class RateLimited(AppError):
 
 
 def error_body(code: str, message: str, details: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    return {"error": {"code": code, "message": message, "details": details,
-                      "correlation_id": get_correlation_id()}}
+    return {"error": {"code": code, "message": message, "details": details, "correlation_id": get_correlation_id()}}

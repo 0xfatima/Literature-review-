@@ -76,8 +76,11 @@ def test_logout_revokes_the_session_server_side(user_client, make_client):
 
 def test_expired_session_is_rejected(user_client, db):
     c, _, uid = user_client()
-    db.execute(update(AuthSession).where(AuthSession.user_id == uuid.UUID(uid))
-               .values(expires_at=datetime.now(UTC) - timedelta(seconds=1)))
+    db.execute(
+        update(AuthSession)
+        .where(AuthSession.user_id == uuid.UUID(uid))
+        .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+    )
     db.commit()
     assert c.get("/api/v1/auth/me").status_code == 401
 
@@ -98,6 +101,7 @@ def test_validation_errors_never_echo_submitted_secrets(make_client):
 
 def test_csrf_header_and_origin_enforced(app):
     from fastapi.testclient import TestClient
+
     bare = TestClient(app, base_url="http://localhost:8000")  # no CSRF header
     r = bare.post("/api/v1/auth/login", json={"email": "a@b.co", "password": "x" * 12})
     assert r.status_code == 403 and r.json()["error"]["code"] == "csrf_rejected"
@@ -108,8 +112,7 @@ def test_csrf_header_and_origin_enforced(app):
 
 def test_login_is_rate_limited_with_retry_after(make_client):
     c, email = make_client(), new_email()
-    codes = [c.post("/api/v1/auth/login", json={"email": email, "password": "wrong-password-123"})
-             for _ in range(12)]
+    codes = [c.post("/api/v1/auth/login", json={"email": email, "password": "wrong-password-123"}) for _ in range(12)]
     assert codes[-1].status_code == 429 and int(codes[-1].headers["retry-after"]) >= 1
     assert codes[-1].json()["error"]["code"] == "rate_limited"
 

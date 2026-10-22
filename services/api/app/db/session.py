@@ -12,8 +12,9 @@ from app.core.config import get_settings
 @lru_cache
 def get_engine() -> Engine:
     s = get_settings()
-    return create_engine(s.database_url, pool_size=s.db_pool_size, pool_timeout=s.db_pool_timeout_s,
-                         pool_pre_ping=True, future=True)
+    return create_engine(
+        s.database_url, pool_size=s.db_pool_size, pool_timeout=s.db_pool_timeout_s, pool_pre_ping=True, future=True
+    )
 
 
 @lru_cache

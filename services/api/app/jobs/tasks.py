@@ -1,4 +1,5 @@
 """Celery tasks: thin wrappers that call services. Business logic does not live here."""
+
 from __future__ import annotations
 
 import logging
@@ -33,7 +34,10 @@ def system_ping(job_id: str) -> str:
                 return "ignored"
             db.commit()
             job = repo.get_by_id(db, jid)
-            delay = min(int((job.input or {}).get("delay_s", 0)), MAX_PING_SLEEP_S) if job else 0
+            if job is None:  # claimed row vanished (deleted between claim and read): nothing to do
+                log.warning("claimed job no longer exists", extra={"job_id": job_id})
+                return "ignored"
+            delay = min(int((job.input or {}).get("delay_s", 0)), MAX_PING_SLEEP_S)
             for i in range(delay):
                 time.sleep(1)
                 db.refresh(job)

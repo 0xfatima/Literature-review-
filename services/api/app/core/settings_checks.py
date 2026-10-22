@@ -1,4 +1,5 @@
 """Pure validation of configuration safety. Stdlib only so it is testable without pydantic."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping

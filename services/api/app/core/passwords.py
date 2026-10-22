@@ -1,4 +1,5 @@
 """Argon2id password hashing (argon2-cffi's PasswordHasher defaults to Argon2id)."""
+
 from __future__ import annotations
 
 from argon2 import PasswordHasher

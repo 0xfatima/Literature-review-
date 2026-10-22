@@ -40,6 +40,7 @@ def test_check_constraint_names_follow_convention_without_double_prefix():
 
 def test_models_match_migrated_schema_columns():
     from app.db import models
+
     insp = inspect(get_engine())
     for table in models.Base.metadata.sorted_tables:
         db_cols = {c["name"] for c in insp.get_columns(table.name)}
@@ -55,6 +56,7 @@ def test_liveness_and_readiness(make_client):
 
 def test_worker_health_reflects_celery_ping(make_client, monkeypatch):
     from app.jobs.celery_app import celery_app
+
     c = make_client()
     monkeypatch.setattr(celery_app.control, "ping", lambda timeout=1.0: [])
     assert c.get("/healthz/worker").status_code == 503
@@ -66,6 +68,7 @@ def test_worker_health_reflects_celery_ping(make_client, monkeypatch):
 def test_every_model_declared_index_exists_in_the_migrated_database():
     """The ORM index definitions (incl. the partial/expression jobs indexes) must construct AND match the migration."""
     from app.db import models
+
     insp = inspect(get_engine())
     for table in models.Base.metadata.sorted_tables:
         indexes = {i["name"] for i in insp.get_indexes(table.name)}
@@ -80,6 +83,7 @@ def test_every_model_declared_constraint_name_matches_the_migrated_database():
     from sqlalchemy import CheckConstraint, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
     from app.db import models
+
     with get_engine().connect() as c:
         rows = c.execute(text("SELECT conname FROM pg_constraint WHERE connamespace = 'public'::regnamespace"))
         db_names = {r[0] for r in rows}

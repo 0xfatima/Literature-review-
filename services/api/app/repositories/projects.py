@@ -1,5 +1,6 @@
 """Every query here is scoped by owner_id. There is deliberately NO get-by-id-only function:
 ownership is part of the lookup, so a missing and a foreign project are indistinguishable (404)."""
+
 from __future__ import annotations
 
 import uuid
@@ -8,6 +9,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.db.base import affected_rows
 from app.db.models import Project
 
 
@@ -35,15 +37,16 @@ def add(db: Session, project: Project) -> Project:
     return project
 
 
-def update_with_version(db: Session, project_id: uuid.UUID, owner_id: uuid.UUID, expected_version: int,
-                        values: dict[str, Any]) -> bool:
+def update_with_version(
+    db: Session, project_id: uuid.UUID, owner_id: uuid.UUID, expected_version: int, values: dict[str, Any]
+) -> bool:
     """Optimistic concurrency: succeeds only if row_version still equals expected_version."""
     res = db.execute(
         update(Project)
         .where(Project.id == project_id, Project.owner_id == owner_id, Project.row_version == expected_version)
         .values(**values, row_version=Project.row_version + 1, updated_at=func.now())
     )
-    return res.rowcount == 1
+    return affected_rows(res) == 1
 
 
 def delete(db: Session, project: Project) -> None:

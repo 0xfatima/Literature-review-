@@ -3,6 +3,7 @@
 Policy (spec §8, §10): never log passwords, tokens, API keys, cookies, or document/chat bodies.
 Log IDs, counts, timings, and sanitized errors only.
 """
+
 from __future__ import annotations
 
 import json

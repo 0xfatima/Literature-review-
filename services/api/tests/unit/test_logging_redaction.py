@@ -20,8 +20,14 @@ def _emit(msg, **extra):
 
 
 def test_redacts_sensitive_keys_recursively():
-    out = redact({"user": "a", "password": "hunter2", "nested": {"api_key": "k", "ok": 1},
-                  "list": [{"Authorization": "Bearer abcdefgh12345"}]})
+    out = redact(
+        {
+            "user": "a",
+            "password": "hunter2",
+            "nested": {"api_key": "k", "ok": 1},
+            "list": [{"Authorization": "Bearer abcdefgh12345"}],
+        }
+    )
     assert out["password"] == REDACTED and out["nested"]["api_key"] == REDACTED
     assert out["list"][0]["Authorization"] == REDACTED and out["nested"]["ok"] == 1 and out["user"] == "a"
 

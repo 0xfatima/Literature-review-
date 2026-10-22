@@ -1,0 +1,15 @@
+# Normalise line endings. Windows checkouts with core.autocrlf=true otherwise turn shell scripts, Dockerfiles
+# and the alembic template into CRLF, which breaks `bash scripts/*.sh` and container entrypoints with
+# "/usr/bin/env: 'bash\r': No such file or directory".
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*Dockerfile text eol=lf
+*.mako text eol=lf
+*.yml text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.docx binary
+*.png binary
+*.jpg binary
+*.pdf binary

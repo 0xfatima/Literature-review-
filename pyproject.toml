@@ -7,8 +7,8 @@ name = "systematic-review-scientist"
 version = "0.1.0"
 description = "Human-in-the-loop systematic review workbench (backend + worker)"
 requires-python = ">=3.12"
-# NOTE: lower bounds only. No lockfile exists yet (authoring sandbox had no network).
-# First action with network access: generate and commit a lock (see docs/runbooks/local-development.md).
+# NOTE: lower bounds only here; exact pins (incl. transitive) live in requirements.lock.txt.
+# Install with: pip install -c requirements.lock.txt -e ".[dev]". Regenerate via scripts/lock.sh after edits.
 dependencies = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",

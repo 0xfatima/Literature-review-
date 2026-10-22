@@ -1,5 +1,6 @@
 """Integration fixtures. Require a REAL PostgreSQL (TEST_DATABASE_URL). SQLite is not supported:
 the schema uses JSONB, partial/expression unique indexes and plpgsql triggers."""
+
 import os
 import pathlib
 import uuid
@@ -30,6 +31,7 @@ def pytest_collection_modifyitems(config, items):
         if "tests/integration" in str(item.fspath).replace("\\", "/"):
             item.add_marker(skip)
 
+
 CSRF = {"X-SRS-CSRF": "1", "Origin": "http://localhost:3000"}
 
 
@@ -39,6 +41,11 @@ def alembic_cfg() -> Config:
 
 @pytest.fixture(scope="session", autouse=True)
 def migrated_db():
+    # This fixture DROPS SCHEMA public. Refuse unless the target database is unmistakably a test database,
+    # so a TEST_DATABASE_URL accidentally pointed at a development/production database cannot wipe it.
+    db_name = get_engine().url.database or ""
+    if "test" not in db_name.lower():
+        pytest.exit(f"Refusing to wipe database {db_name!r}: TEST_DATABASE_URL must name a database containing 'test'")
     with get_engine().begin() as c:
         c.execute(text("DROP SCHEMA public CASCADE"))
         c.execute(text("CREATE SCHEMA public"))
@@ -75,6 +82,7 @@ def app(dispatcher):
 def make_client(app):
     def _make() -> TestClient:
         return TestClient(app, headers=CSRF, base_url="http://localhost:8000")
+
     return _make
 
 
@@ -94,6 +102,7 @@ PASSWORD = "a-long-test-password-1"
 @pytest.fixture
 def user_client(make_client):
     """Factory: returns (client, email, user_id) already registered and logged in."""
+
     def _make():
         c = make_client()
         email = new_email()
@@ -102,4 +111,5 @@ def user_client(make_client):
         uid = r.json()["id"]
         assert c.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD}).status_code == 200
         return c, email, uid
+
     return _make

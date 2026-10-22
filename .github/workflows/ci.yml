@@ -47,9 +47,9 @@ jobs:
       - run: ruff check services/api
       - run: ruff format --check services/api
       - run: mypy
-      - name: Migrations apply on a clean database (up, down, up)
+      - name: Migrations apply on a clean database (up, down, up) and models match migrations
         working-directory: services/api
-        run: alembic upgrade head && alembic downgrade base && alembic upgrade head
+        run: alembic upgrade head && alembic downgrade base && alembic upgrade head && alembic check
       - name: Unit + integration tests with coverage (skips are failures)
         run: |
           pytest services/api/tests -rs --junitxml=pytest.xml --cov=app --cov-report=term-missing --cov-report=xml
@@ -80,6 +80,7 @@ jobs:
         run: test -f package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm run format:check
       - run: npm run typecheck
       - run: npm run test:unit
       - run: npm run build

@@ -17,3 +17,13 @@ test-results/
 /storage/
 *.pdf
 !services/api/tests/fixtures/**/*.pdf
+# test / build artefacts
+.coverage
+.coverage.*
+coverage.xml
+pytest.xml
+validation-evidence/
+*.egg-info/
+*.tsbuildinfo
+next-env.d.ts.bak
+celerybeat-schedule*

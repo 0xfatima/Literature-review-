@@ -18,8 +18,13 @@ def create_project(body: ProjectCreate, user: User = Depends(current_user), db: 
 
 
 @router.get("", response_model=ProjectList)
-def list_projects(include_archived: bool = False, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
-                  user: User = Depends(current_user), db: Session = Depends(get_db)) -> ProjectList:
+def list_projects(
+    include_archived: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ProjectList:
     items, total = project_service.list_(db, user, include_archived=include_archived, limit=limit, offset=offset)
     return ProjectList(items=[ProjectOut.model_validate(p) for p in items], total=total, limit=limit, offset=offset)
 
@@ -30,14 +35,20 @@ def read_project(project: Project = Depends(get_owned_project)) -> Project:
 
 
 @router.patch("/{project_id}", response_model=ProjectOut)
-def update_project(body: ProjectUpdate, project: Project = Depends(get_owned_project),
-                   user: User = Depends(current_user), db: Session = Depends(get_db)) -> Project:
-    return project_service.update(db, user, project.id, expected_version=body.expected_version,
-                                  title=body.title, archived=body.archived)
+def update_project(
+    body: ProjectUpdate,
+    project: Project = Depends(get_owned_project),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Project:
+    return project_service.update(
+        db, user, project.id, expected_version=body.expected_version, title=body.title, archived=body.archived
+    )
 
 
 @router.delete("/{project_id}", status_code=204)
-def delete_project(project: Project = Depends(get_owned_project), user: User = Depends(current_user),
-                   db: Session = Depends(get_db)) -> Response:
+def delete_project(
+    project: Project = Depends(get_owned_project), user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> Response:
     project_service.delete(db, user, project.id)
     return Response(status_code=204)

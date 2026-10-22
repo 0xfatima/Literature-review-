@@ -22,6 +22,7 @@ def _limiter() -> RateLimiter:
     s = get_settings()
     try:
         import redis
+
         return RedisRateLimiter(redis.Redis.from_url(s.redis_url, socket_timeout=1, socket_connect_timeout=1))
     except Exception:  # noqa: BLE001
         return InMemoryRateLimiter()
@@ -40,8 +41,9 @@ def client_key(request: Request, settings: Settings = Depends(get_settings)) -> 
     return client_ip(request.headers.get("x-forwarded-for"), peer, settings.trusted_proxy_hops)
 
 
-def current_session(request: Request, db: Session = Depends(get_db),
-                    settings: Settings = Depends(get_settings)) -> tuple[User, AuthSession]:
+def current_session(
+    request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+) -> tuple[User, AuthSession]:
     resolved = auth_service.resolve_session(db, request.cookies.get(settings.session_cookie_name))
     if resolved is None:
         raise Unauthorized("Authentication required.")
@@ -52,8 +54,9 @@ def current_user(resolved: tuple[User, AuthSession] = Depends(current_session)) 
     return resolved[0]
 
 
-def get_owned_project(project_id: uuid.UUID, user: User = Depends(current_user),
-                      db: Session = Depends(get_db)) -> Project:
+def get_owned_project(
+    project_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> Project:
     """THE authorization choke point for every /projects/{project_id}/... route.
     Raises 404 (not 403) for foreign projects so existence is not leaked."""
     return project_service.get(db, user, project_id)

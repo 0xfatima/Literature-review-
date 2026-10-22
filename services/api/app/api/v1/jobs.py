@@ -17,16 +17,28 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.post("/ping", response_model=JobOut, status_code=202)
-def start_ping(body: PingJobRequest, response: Response, idempotency_key: str | None = Header(default=None),
-               user: User = Depends(current_user), db: Session = Depends(get_db),
-               settings: Settings = Depends(get_settings),
-               dispatch: Callable[[str, str], None] = Depends(get_dispatcher)) -> Job:
+def start_ping(
+    body: PingJobRequest,
+    response: Response,
+    idempotency_key: str | None = Header(default=None),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    dispatch: Callable[[str, str], None] = Depends(get_dispatcher),
+) -> Job:
     """System job used to prove the queue/worker path end to end (and to exercise recovery)."""
     if body.project_id is not None:
         project_service.get(db, user, body.project_id)  # ownership check before attaching a job to a project
-    job, created = job_service.enqueue(db, settings, dispatch, user, job_type="system.ping",
-                                       project_id=body.project_id, payload={"delay_s": body.delay_s},
-                                       request_key=idempotency_key)
+    job, created = job_service.enqueue(
+        db,
+        settings,
+        dispatch,
+        user,
+        job_type="system.ping",
+        project_id=body.project_id,
+        payload={"delay_s": body.delay_s},
+        request_key=idempotency_key,
+    )
     if not created:
         response.status_code = 200  # replay of the same Idempotency-Key
     return job

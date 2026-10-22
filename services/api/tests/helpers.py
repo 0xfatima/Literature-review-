@@ -1,4 +1,5 @@
 """Tiny helpers usable by both pytest and the stdlib shim runner (no third-party imports)."""
+
 from contextlib import contextmanager
 
 

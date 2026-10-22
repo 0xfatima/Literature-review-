@@ -1,16 +1,24 @@
 """Typed settings from environment (12-factor). Fails fast outside local environments."""
+
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.settings_checks import find_unsafe_settings
 
+# The repository-root .env (services/api/app/core/config.py -> parents[4]). Loading it by absolute path means
+# `alembic`, `uvicorn` and `celery` find it whether they are started from the repo root or from services/api.
+# A .env in the current directory is read second and wins. Real environment variables always beat both files.
+# In containers neither file exists (.dockerignore excludes .env); compose injects variables instead.
+_REPO_ROOT_ENV = Path(__file__).resolve().parents[4] / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
+    model_config = SettingsConfigDict(env_file=(_REPO_ROOT_ENV, ".env"), extra="ignore", case_sensitive=False)
 
     app_env: str = "development"
     app_base_url: str = "http://localhost:3000"

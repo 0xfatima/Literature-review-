@@ -8,7 +8,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: { staleTime: 5_000, retry: (n, err) => !(err instanceof ApiError && err.status < 500) && n < 2 },
+          queries: {
+            staleTime: 5_000,
+            retry: (n, err) => !(err instanceof ApiError && err.status < 500) && n < 2,
+          },
         },
       }),
   );

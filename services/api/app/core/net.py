@@ -8,6 +8,7 @@ Rule: with N trusted proxy hops, the client is the N-th entry counted from the R
 appended the address of its immediate peer). Anything to the left of that is untrusted and ignored.
 N = 0 means: ignore the header entirely and use the TCP peer.
 """
+
 from __future__ import annotations
 
 import ipaddress

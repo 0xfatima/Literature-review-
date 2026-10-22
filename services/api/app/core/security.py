@@ -2,6 +2,7 @@
 
 Password hashing (Argon2id) lives in app.core.passwords because it needs argon2-cffi.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -58,8 +59,10 @@ def validate_password(password: str, email: str | None = None) -> None:
     if password.lower() in _COMMON or len(set(password)) < 4:
         issues.append("too common or repetitive")
     if issues:
-        raise ValidationFailed("Password does not meet requirements: " + "; ".join(issues) + ".",
-                               details=[{"field": "password", "issue": i} for i in issues])
+        raise ValidationFailed(
+            "Password does not meet requirements: " + "; ".join(issues) + ".",
+            details=[{"field": "password", "issue": i} for i in issues],
+        )
 
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})

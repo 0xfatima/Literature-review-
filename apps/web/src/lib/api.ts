@@ -15,7 +15,8 @@ export class ApiError extends Error {
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("X-SRS-CSRF", "1"); // required by the backend for state-changing requests
-  if (init.body !== undefined && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (init.body !== undefined && !headers.has("Content-Type"))
+    headers.set("Content-Type", "application/json");
   const res = await fetch(`/api/v1${path}`, { ...init, headers, credentials: "same-origin" });
   if (res.status === 204) return undefined as T;
   let body: unknown = null;
@@ -28,8 +29,16 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return body as T;
 }
 
-export function toApiError(status: number, body: unknown, headerCorrelationId: string | null = null): ApiError {
-  const e = (body as { error?: { code?: string; message?: string; details?: unknown; correlation_id?: string | null } } | null)?.error;
+export function toApiError(
+  status: number,
+  body: unknown,
+  headerCorrelationId: string | null = null,
+): ApiError {
+  const e = (
+    body as {
+      error?: { code?: string; message?: string; details?: unknown; correlation_id?: string | null };
+    } | null
+  )?.error;
   return new ApiError(
     status,
     e?.code ?? "http_error",

@@ -57,11 +57,14 @@ def test_events_survive_project_deletion_and_carry_correlation_id(user_client, d
     assert len(deleted) == 1 and deleted[0].correlation_id == "audit-corr-0001"
 
 
-@pytest.mark.parametrize("sql", [
-    "UPDATE audit_events SET action = 'tampered'",
-    "DELETE FROM audit_events",
-    "TRUNCATE audit_events",
-])
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "UPDATE audit_events SET action = 'tampered'",
+        "DELETE FROM audit_events",
+        "TRUNCATE audit_events",
+    ],
+)
 def test_audit_table_is_append_only_at_the_database_level(db, sql, make_client):
     make_client().post("/api/v1/auth/register", json={"email": new_email(), "password": PASSWORD})  # ensure rows exist
     with pytest.raises(DBAPIError, match="append-only"):

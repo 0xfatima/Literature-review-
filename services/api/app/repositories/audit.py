@@ -15,5 +15,8 @@ def add(db: Session, event: AuditEvent) -> AuditEvent:
 
 
 def list_for_project(db: Session, project_id: uuid.UUID, limit: int = 100) -> list[AuditEvent]:
-    return list(db.scalars(select(AuditEvent).where(AuditEvent.project_id == project_id)
-                           .order_by(AuditEvent.at.desc()).limit(limit)))
+    return list(
+        db.scalars(
+            select(AuditEvent).where(AuditEvent.project_id == project_id).order_by(AuditEvent.at.desc()).limit(limit)
+        )
+    )

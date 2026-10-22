@@ -3,6 +3,7 @@
 Rules: never store passwords/tokens; never store free-text user content (titles, topics) — record
 changed field NAMES instead, so that deleting a project leaves no personal text behind in the log.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -16,12 +17,29 @@ from app.db.models import AuditEvent
 from app.repositories import audit as audit_repo
 
 
-def record(db: Session, *, action: str, entity_type: str, entity_id: uuid.UUID | None,
-           actor_id: uuid.UUID | None, project_id: uuid.UUID | None = None,
-           before: dict[str, Any] | None = None, after: dict[str, Any] | None = None,
-           reason: str | None = None) -> AuditEvent:
-    return audit_repo.add(db, AuditEvent(
-        action=action, entity_type=entity_type, entity_id=entity_id, actor_id=actor_id, project_id=project_id,
-        before=redact(before) if before is not None else None,
-        after=redact(after) if after is not None else None,
-        reason=reason, correlation_id=get_correlation_id()))
+def record(
+    db: Session,
+    *,
+    action: str,
+    entity_type: str,
+    entity_id: uuid.UUID | None,
+    actor_id: uuid.UUID | None,
+    project_id: uuid.UUID | None = None,
+    before: dict[str, Any] | None = None,
+    after: dict[str, Any] | None = None,
+    reason: str | None = None,
+) -> AuditEvent:
+    return audit_repo.add(
+        db,
+        AuditEvent(
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            actor_id=actor_id,
+            project_id=project_id,
+            before=redact(before) if before is not None else None,
+            after=redact(after) if after is not None else None,
+            reason=reason,
+            correlation_id=get_correlation_id(),
+        ),
+    )

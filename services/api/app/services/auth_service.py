@@ -23,8 +23,9 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def register(db: Session, settings: Settings, limiter: RateLimiter, *, email: str, password: str,
-             client_key: str) -> User:
+def register(
+    db: Session, settings: Settings, limiter: RateLimiter, *, email: str, password: str, client_key: str
+) -> User:
     allowed, retry = limiter.hit(f"register:{client_key}", settings.rate_limit_register_per_hour, 3600)
     if not allowed:
         raise RateLimited(retry)
@@ -44,8 +45,16 @@ def register(db: Session, settings: Settings, limiter: RateLimiter, *, email: st
     return user
 
 
-def login(db: Session, settings: Settings, limiter: RateLimiter, *, email: str, password: str,
-          client_key: str, user_agent: str | None) -> tuple[User, str, datetime]:
+def login(
+    db: Session,
+    settings: Settings,
+    limiter: RateLimiter,
+    *,
+    email: str,
+    password: str,
+    client_key: str,
+    user_agent: str | None,
+) -> tuple[User, str, datetime]:
     email_n = normalize_email(email)
     fp = email_fingerprint(email_n)
     # Two buckets: per-account (stops targeted guessing from many IPs) and per-client.
@@ -56,16 +65,29 @@ def login(db: Session, settings: Settings, limiter: RateLimiter, *, email: str, 
     user = users_repo.get_by_email(db, email_n)
     ok = passwords.verify_password(user.password_hash if user else None, password)  # always one Argon2 verify
     if not ok or user is None or user.status != "active":
-        audit_service.record(db, action="auth.login_failed", entity_type="user", entity_id=user.id if user else None,
-                             actor_id=None, after={"email_fingerprint": fp})
+        audit_service.record(
+            db,
+            action="auth.login_failed",
+            entity_type="user",
+            entity_id=user.id if user else None,
+            actor_id=None,
+            after={"email_fingerprint": fp},
+        )
         db.commit()  # persist the audit event even though we then raise
         raise Unauthorized(INVALID_CREDENTIALS, code="invalid_credentials")
     if passwords.needs_rehash(user.password_hash):
         user.password_hash = passwords.hash_password(password)
     token = new_session_token()
     expires = _utcnow() + timedelta(hours=settings.session_ttl_hours)
-    users_repo.add_session(db, AuthSession(user_id=user.id, token_hash=hash_token(token), expires_at=expires,
-                                           user_agent=(user_agent or "")[:200] or None))
+    users_repo.add_session(
+        db,
+        AuthSession(
+            user_id=user.id,
+            token_hash=hash_token(token),
+            expires_at=expires,
+            user_agent=(user_agent or "")[:200] or None,
+        ),
+    )
     audit_service.record(db, action="auth.login_succeeded", entity_type="user", entity_id=user.id, actor_id=user.id)
     db.commit()
     return user, token, expires

@@ -16,7 +16,9 @@ test("signed-out visitors are redirected to login", async ({ page }) => {
   await expect(page).toHaveURL(/\/login$/);
 });
 
-test("register, create project, reload, reopen, rename, archive, sign out, sign in again", async ({ page }) => {
+test("register, create project, reload, reopen, rename, archive, sign out, sign in again", async ({
+  page,
+}) => {
   const email = uniqueEmail();
   await register(page, email);
 

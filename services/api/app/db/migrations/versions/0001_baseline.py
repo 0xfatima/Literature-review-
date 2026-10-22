@@ -15,7 +15,7 @@ depends_on = None
 ZERO = "00000000-0000-0000-0000-000000000000"
 
 
-def _now():
+def _now() -> sa.TextClause:
     return sa.text("now()")
 
 

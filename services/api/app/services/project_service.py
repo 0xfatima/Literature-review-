@@ -26,8 +26,15 @@ def create(db: Session, user: User, *, title: str, topic: str) -> Project:
     if not topic:
         raise ValidationFailed("Topic is required.", details=[{"field": "topic", "issue": "required"}])
     p = repo.add(db, Project(owner_id=user.id, title=title, topic_original=topic))
-    audit_service.record(db, action="project.created", entity_type="project", entity_id=p.id,
-                         actor_id=user.id, project_id=p.id, after={"status": p.status})
+    audit_service.record(
+        db,
+        action="project.created",
+        entity_type="project",
+        entity_id=p.id,
+        actor_id=user.id,
+        project_id=p.id,
+        after={"status": p.status},
+    )
     db.commit()
     return p
 
@@ -37,12 +44,15 @@ def get(db: Session, user: User, project_id: uuid.UUID) -> Project:
 
 
 def list_(db: Session, user: User, *, include_archived: bool, limit: int, offset: int) -> tuple[list[Project], int]:
-    return (repo.list_for_owner(db, user.id, include_archived, limit, offset),
-            repo.count_for_owner(db, user.id, include_archived))
+    return (
+        repo.list_for_owner(db, user.id, include_archived, limit, offset),
+        repo.count_for_owner(db, user.id, include_archived),
+    )
 
 
-def update(db: Session, user: User, project_id: uuid.UUID, *, expected_version: int,
-           title: str | None, archived: bool | None) -> Project:
+def update(
+    db: Session, user: User, project_id: uuid.UUID, *, expected_version: int, title: str | None, archived: bool | None
+) -> Project:
     p = _require_owned(db, user, project_id)
     values: dict[str, Any] = {}
     changed: list[str] = []
@@ -67,8 +77,16 @@ def update(db: Session, user: User, project_id: uuid.UUID, *, expected_version: 
         action = "project.archived" if archived else "project.unarchived"
     else:
         action = "project.updated"
-    audit_service.record(db, action=action, entity_type="project", entity_id=p.id, actor_id=user.id,
-                         project_id=p.id, before=before_state, after={**after_state, "changed_fields": changed})
+    audit_service.record(
+        db,
+        action=action,
+        entity_type="project",
+        entity_id=p.id,
+        actor_id=user.id,
+        project_id=p.id,
+        before=before_state,
+        after={**after_state, "changed_fields": changed},
+    )
     db.commit()
     db.refresh(p)
     return p
@@ -78,6 +96,7 @@ def delete(db: Session, user: User, project_id: uuid.UUID) -> None:
     p = _require_owned(db, user, project_id)
     pid = p.id
     repo.delete(db, p)  # dependent rows cascade; stored objects will be purged here in later phases
-    audit_service.record(db, action="project.deleted", entity_type="project", entity_id=pid,
-                         actor_id=user.id, project_id=pid)
+    audit_service.record(
+        db, action="project.deleted", entity_type="project", entity_id=pid, actor_id=user.id, project_id=pid
+    )
     db.commit()

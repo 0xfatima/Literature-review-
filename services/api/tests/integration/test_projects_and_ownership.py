@@ -19,8 +19,9 @@ def test_create_list_reopen(user_client):
 def test_rename_archive_unarchive_and_topic_is_immutable(user_client):
     c, _, _ = user_client()
     p = mk(c)
-    r = c.patch(f"/api/v1/projects/{p['id']}", json={"expected_version": 1, "title": "Renamed",
-                                                     "topic_original": "tampered"})
+    r = c.patch(
+        f"/api/v1/projects/{p['id']}", json={"expected_version": 1, "title": "Renamed", "topic_original": "tampered"}
+    )
     assert r.status_code == 200 and r.json()["title"] == "Renamed" and r.json()["row_version"] == 2
     assert r.json()["topic_original"] == "Effect of X on Y"
     r = c.patch(f"/api/v1/projects/{p['id']}", json={"expected_version": 2, "archived": True})
@@ -64,13 +65,16 @@ def test_pagination(user_client):
 
 # ---------------- authorization: user B must not reach user A's resources -----------------
 
+
 def test_other_user_gets_404_on_every_project_route(user_client):
     a, _, _ = user_client()
     b, _, _ = user_client()
     pid = mk(a)["id"]
-    routes = [("get", f"/api/v1/projects/{pid}", None),
-              ("patch", f"/api/v1/projects/{pid}", {"expected_version": 1, "title": "hijack"}),
-              ("delete", f"/api/v1/projects/{pid}", None)]
+    routes = [
+        ("get", f"/api/v1/projects/{pid}", None),
+        ("patch", f"/api/v1/projects/{pid}", {"expected_version": 1, "title": "hijack"}),
+        ("delete", f"/api/v1/projects/{pid}", None),
+    ]
     for method, url, body in routes:
         r = getattr(b, method)(url, **({"json": body} if body else {}))
         assert r.status_code == 404, (method, url, r.status_code)
@@ -104,11 +108,17 @@ def test_unauthenticated_requests_are_rejected_everywhere(make_client, user_clie
     a, _, _ = user_client()
     pid = mk(a)["id"]
     anon = make_client()
-    for method, url in [("get", "/api/v1/projects"), ("post", "/api/v1/projects"),
-                        ("get", f"/api/v1/projects/{pid}"), ("patch", f"/api/v1/projects/{pid}"),
-                        ("delete", f"/api/v1/projects/{pid}"), ("post", "/api/v1/jobs/ping"),
-                        ("get", f"/api/v1/jobs/{uuid.uuid4()}"), ("post", f"/api/v1/jobs/{uuid.uuid4()}/cancel"),
-                        ("post", "/api/v1/auth/logout")]:
+    for method, url in [
+        ("get", "/api/v1/projects"),
+        ("post", "/api/v1/projects"),
+        ("get", f"/api/v1/projects/{pid}"),
+        ("patch", f"/api/v1/projects/{pid}"),
+        ("delete", f"/api/v1/projects/{pid}"),
+        ("post", "/api/v1/jobs/ping"),
+        ("get", f"/api/v1/jobs/{uuid.uuid4()}"),
+        ("post", f"/api/v1/jobs/{uuid.uuid4()}/cancel"),
+        ("post", "/api/v1/auth/logout"),
+    ]:
         r = getattr(anon, method)(url, json={}) if method in ("post", "patch") else getattr(anon, method)(url)
         assert r.status_code == 401, (method, url, r.status_code)
 

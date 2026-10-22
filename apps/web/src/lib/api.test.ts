@@ -4,7 +4,9 @@ import { ApiError, apiFetch, toApiError } from "./api";
 afterEach(() => vi.unstubAllGlobals());
 
 function stubFetch(status: number, body: unknown, headers: Record<string, string> = {}) {
-  const fn = vi.fn(async () => new Response(body === undefined ? null : JSON.stringify(body), { status, headers }));
+  const fn = vi.fn(
+    async () => new Response(body === undefined ? null : JSON.stringify(body), { status, headers }),
+  );
   vi.stubGlobal("fetch", fn);
   return fn;
 }
@@ -27,8 +29,14 @@ describe("apiFetch", () => {
   });
 
   it("maps the backend error envelope to ApiError", async () => {
-    stubFetch(409, { error: { code: "email_taken", message: "exists", details: null, correlation_id: "c-1" } });
-    await expect(apiFetch("/auth/register")).rejects.toMatchObject({ status: 409, code: "email_taken", correlationId: "c-1" });
+    stubFetch(409, {
+      error: { code: "email_taken", message: "exists", details: null, correlation_id: "c-1" },
+    });
+    await expect(apiFetch("/auth/register")).rejects.toMatchObject({
+      status: 409,
+      code: "email_taken",
+      correlationId: "c-1",
+    });
   });
 
   it("falls back to a generic message for non-envelope failures", () => {

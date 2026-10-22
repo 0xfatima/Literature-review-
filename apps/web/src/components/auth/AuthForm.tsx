@@ -35,30 +35,69 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
       <h1 className="text-2xl font-semibold">{isRegister ? "Create your account" : "Sign in"}</h1>
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <div className="flex flex-col gap-1">
-          <label htmlFor="email" className="text-sm font-medium">Email</label>
-          <input id="email" name="email" type="email" autoComplete="email" required className="input"
-                 value={email} onChange={(e) => setEmail(e.target.value)} />
+          <label htmlFor="email" className="text-sm font-medium">
+            Email
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            className="input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="password" className="text-sm font-medium">Password</label>
-          <input id="password" name="password" type="password" required
-                 autoComplete={isRegister ? "new-password" : "current-password"} className="input"
-                 aria-describedby={isRegister ? "pw-hint" : undefined}
-                 value={password} onChange={(e) => setPassword(e.target.value)} />
-          {isRegister && <p id="pw-hint" className="text-xs text-slate-500">At least 12 characters.</p>}
+          <label htmlFor="password" className="text-sm font-medium">
+            Password
+          </label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            required
+            autoComplete={isRegister ? "new-password" : "current-password"}
+            className="input"
+            aria-describedby={isRegister ? "pw-hint" : undefined}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          {isRegister && (
+            <p id="pw-hint" className="text-xs text-slate-500">
+              At least 12 characters.
+            </p>
+          )}
         </div>
-        <div role="alert" aria-live="polite" className="min-h-5 text-sm text-red-700 dark:text-red-400">{error}</div>
+        <div role="alert" aria-live="polite" className="min-h-5 text-sm text-red-700 dark:text-red-400">
+          {error}
+        </div>
         <button type="submit" className="btn" disabled={busy}>
           {busy ? "Please wait…" : isRegister ? "Create account" : "Sign in"}
         </button>
       </form>
       <p className="text-sm">
-        {isRegister ? (<>Already registered? <Link className="underline" href="/login">Sign in</Link></>)
-                    : (<>New here? <Link className="underline" href="/register">Create an account</Link></>)}
+        {isRegister ? (
+          <>
+            Already registered?{" "}
+            <Link className="underline" href="/login">
+              Sign in
+            </Link>
+          </>
+        ) : (
+          <>
+            New here?{" "}
+            <Link className="underline" href="/register">
+              Create an account
+            </Link>
+          </>
+        )}
       </p>
       {!isRegister && (
         <p className="text-xs text-slate-500">
-          Password recovery is not available yet. If you are locked out, ask the administrator to reset your password.
+          Password recovery is not available yet. If you are locked out, ask the administrator to reset your
+          password.
         </p>
       )}
     </main>

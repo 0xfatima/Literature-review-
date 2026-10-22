@@ -59,8 +59,8 @@ def test_LEGITIMATE_RERUNS_are_not_blocked_after_any_terminal_state(user_client,
     c, _, _ = user_client()
     for terminal in ("succeeded", "failed", "cancelled"):
         first = post(c, {"delay_s": 7}).json()
-        force(db, first["id"], status=terminal)           # job finished (any way)
-        again = post(c, {"delay_s": 7})                     # same search, run again
+        force(db, first["id"], status=terminal)  # job finished (any way)
+        again = post(c, {"delay_s": 7})  # same search, run again
         assert again.status_code == 202 and again.json()["id"] != first["id"], terminal
         force(db, again.json()["id"], status="succeeded")  # tidy so the next loop starts clean
 
@@ -88,6 +88,7 @@ def test_finish_enforces_state_machine(user_client, db):
     import pytest
 
     from app.jobs.fsm import InvalidTransition
+
     with pytest.raises(InvalidTransition):
         repo.finish(db, jid, fsm.QUEUED, fsm.SUCCEEDED)  # cannot skip 'running'
 

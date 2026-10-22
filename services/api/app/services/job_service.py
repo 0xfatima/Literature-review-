@@ -1,4 +1,5 @@
 """Job orchestration. Postgres is the source of truth; Redis/Celery is only the transport."""
+
 from __future__ import annotations
 
 import logging
@@ -26,9 +27,18 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def enqueue(db: Session, settings: Settings, dispatch: Dispatcher, user: User, *, job_type: str,
-            project_id: uuid.UUID | None, payload: dict[str, Any], request_key: str | None,
-            rerun_of: uuid.UUID | None = None) -> tuple[Job, bool]:
+def enqueue(
+    db: Session,
+    settings: Settings,
+    dispatch: Dispatcher,
+    user: User,
+    *,
+    job_type: str,
+    project_id: uuid.UUID | None,
+    payload: dict[str, Any],
+    request_key: str | None,
+    rerun_of: uuid.UUID | None = None,
+) -> tuple[Job, bool]:
     """Returns (job, created). created=False means an Idempotency-Key replay returned the existing job."""
     spec = fsm.JOB_TYPES.get(job_type)
     if spec is None:
@@ -41,12 +51,21 @@ def enqueue(db: Session, settings: Settings, dispatch: Dispatcher, user: User, *
         existing = repo.get_by_request_key(db, user.id, request_key)
         if existing is not None:
             if existing.input_fingerprint != fp or existing.type != job_type:
-                raise Conflict("This Idempotency-Key was already used with different parameters.",
-                               code="idempotency_key_reuse")
+                raise Conflict(
+                    "This Idempotency-Key was already used with different parameters.", code="idempotency_key_reuse"
+                )
             return existing, False
 
-    job = Job(owner_id=user.id, project_id=project_id, type=job_type, input=payload, input_fingerprint=fp,
-              request_key=request_key, max_attempts=spec["max_attempts"], rerun_of_job_id=rerun_of)
+    job = Job(
+        owner_id=user.id,
+        project_id=project_id,
+        type=job_type,
+        input=payload,
+        input_fingerprint=fp,
+        request_key=request_key,
+        max_attempts=spec["max_attempts"],
+        rerun_of_job_id=rerun_of,
+    )
     try:
         with db.begin_nested():  # savepoint so a unique violation does not poison the outer transaction
             repo.add(db, job)
@@ -58,10 +77,20 @@ def enqueue(db: Session, settings: Settings, dispatch: Dispatcher, user: User, *
             if raced is not None and raced.input_fingerprint == fp:
                 return raced, False
         active = repo.get_active_by_fingerprint(db, user.id, job_type, project_id, fp)
-        raise Conflict("An identical job is already queued or running.", code="job_already_active",
-                       details=[{"job_id": str(active.id) if active else None}]) from None
-    audit_service.record(db, action="job.enqueued", entity_type="job", entity_id=job.id, actor_id=user.id,
-                         project_id=project_id, after={"type": job_type, "rerun": rerun_of is not None})
+        raise Conflict(
+            "An identical job is already queued or running.",
+            code="job_already_active",
+            details=[{"job_id": str(active.id) if active else None}],
+        ) from None
+    audit_service.record(
+        db,
+        action="job.enqueued",
+        entity_type="job",
+        entity_id=job.id,
+        actor_id=user.id,
+        project_id=project_id,
+        after={"type": job_type, "rerun": rerun_of is not None},
+    )
     db.commit()
     _dispatch(db, dispatch, job)
     return job, True
@@ -95,8 +124,14 @@ def request_cancel(db: Session, user: User, job_id: uuid.UUID) -> Job:
         job.cancel_requested = True  # cooperative: the worker checks between steps
     else:
         raise Conflict(f"Job is already {job.status}.", code="not_cancellable")
-    audit_service.record(db, action="job.cancel_requested", entity_type="job", entity_id=job.id,
-                         actor_id=user.id, project_id=job.project_id)
+    audit_service.record(
+        db,
+        action="job.cancel_requested",
+        entity_type="job",
+        entity_id=job.id,
+        actor_id=user.id,
+        project_id=job.project_id,
+    )
     db.commit()
     db.refresh(job)
     return job
@@ -105,8 +140,9 @@ def request_cancel(db: Session, user: User, job_id: uuid.UUID) -> Job:
 def sweep(db: Session, settings: Settings, dispatch: Dispatcher, now: datetime | None = None) -> dict[str, int]:
     """Recover from worker crashes and lost broker messages. Safe to run concurrently (SKIP LOCKED + CAS claim)."""
     now = now or _now()
-    policy = fsm.RecoveryPolicy(timedelta(seconds=settings.job_stale_after_s),
-                                timedelta(seconds=settings.job_requeue_queued_after_s))
+    policy = fsm.RecoveryPolicy(
+        timedelta(seconds=settings.job_stale_after_s), timedelta(seconds=settings.job_requeue_queued_after_s)
+    )
     requeued = failed = redispatched = 0
     for job in repo.stale_running(db, now - policy.stale_after):
         outcome = fsm.worker_loss_outcome(job.attempts, job.max_attempts)
@@ -117,8 +153,15 @@ def sweep(db: Session, settings: Settings, dispatch: Dispatcher, now: datetime |
             failed += 1
         else:
             requeued += 1
-        audit_service.record(db, action=f"job.recovered_{outcome}", entity_type="job", entity_id=job.id,
-                             actor_id=None, project_id=job.project_id, after={"attempts": job.attempts})
+        audit_service.record(
+            db,
+            action=f"job.recovered_{outcome}",
+            entity_type="job",
+            entity_id=job.id,
+            actor_id=None,
+            project_id=job.project_id,
+            after={"attempts": job.attempts},
+        )
     db.commit()
     for job in repo.queued_needing_dispatch(db, now - policy.requeue_queued_after):
         try:

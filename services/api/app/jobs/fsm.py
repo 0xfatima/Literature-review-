@@ -16,6 +16,7 @@ Three distinct concerns, three distinct mechanisms, none of which blocks a *legi
       in later phases. A redelivered message for a finished job is a no-op.
 Reruns can record lineage via `rerun_of_job_id`; they never need to defeat a constraint.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -25,7 +26,13 @@ from datetime import datetime, timedelta
 from typing import Any
 
 QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED, AWAITING_INPUT = (
-    "queued", "running", "succeeded", "failed", "cancelled", "awaiting_input")
+    "queued",
+    "running",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "awaiting_input",
+)
 ALL_STATUSES = (QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED, AWAITING_INPUT)
 ACTIVE_STATUSES = (QUEUED, RUNNING)  # statuses covered by the in-flight uniqueness index
 TERMINAL_STATUSES = (SUCCEEDED, FAILED, CANCELLED)
@@ -60,27 +67,30 @@ def assert_transition(src: str, dst: str) -> None:
 
 def fingerprint(job_type: str, project_id: str | None, payload: dict[str, Any]) -> str:
     """Canonical SHA-256 over (type, project, input). Key order and whitespace do not matter."""
-    canonical = json.dumps({"t": job_type, "p": project_id, "i": payload},
-                           sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    canonical = json.dumps(
+        {"t": job_type, "p": project_id, "i": payload}, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
 class RecoveryPolicy:
-    stale_after: timedelta        # running job with no heartbeat for this long is presumed lost
+    stale_after: timedelta  # running job with no heartbeat for this long is presumed lost
     requeue_queued_after: timedelta  # queued job whose message may never have been sent (crash after commit)
 
 
-def is_stale_running(status: str, heartbeat_at: datetime | None, started_at: datetime | None,
-                     now: datetime, policy: RecoveryPolicy) -> bool:
+def is_stale_running(
+    status: str, heartbeat_at: datetime | None, started_at: datetime | None, now: datetime, policy: RecoveryPolicy
+) -> bool:
     if status != RUNNING:
         return False
     last = heartbeat_at or started_at
     return last is None or (now - last) > policy.stale_after
 
 
-def needs_redispatch(status: str, enqueued_at: datetime | None, created_at: datetime,
-                     now: datetime, policy: RecoveryPolicy) -> bool:
+def needs_redispatch(
+    status: str, enqueued_at: datetime | None, created_at: datetime, now: datetime, policy: RecoveryPolicy
+) -> bool:
     if status != QUEUED:
         return False
     ref = enqueued_at or created_at
