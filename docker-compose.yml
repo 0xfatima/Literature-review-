@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: srs
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: srs
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]   # host-local only
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U srs -d srs"]
@@ -17,7 +17,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    ports: ["127.0.0.1:6379:6379"]   # host-local only
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -30,7 +30,7 @@ services:
     environment: &dockerenv
       DATABASE_URL: postgresql+psycopg://srs:${POSTGRES_PASSWORD}@postgres:5432/srs
       REDIS_URL: redis://redis:6379/0
-      TRUSTED_PROXY_HOPS: "1"      # api is reached only through the Next.js proxy
+      TRUSTED_PROXY_HOPS: "1"      # exactly one trusted hop: the nginx edge proxy (infra/proxy/nginx.conf)
     command: ["alembic", "upgrade", "head"]
     depends_on: { postgres: { condition: service_healthy } }
     restart: "no"
@@ -39,7 +39,9 @@ services:
     build: { context: ., dockerfile: infra/docker/api.Dockerfile }
     env_file: .env
     environment: *dockerenv
-    ports: ["8000:8000"]
+    # Host-local only (OpenAPI docs, health checks, drills). Browsers go through `proxy`. A client reaching this
+    # port directly bypasses the proxy and can forge X-Forwarded-For, so never publish it beyond localhost.
+    ports: ["127.0.0.1:8000:8000"]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -58,8 +60,14 @@ services:
       dockerfile: infra/docker/web.Dockerfile
       args: { API_BASE_URL: http://api:8000 }
     environment: { API_BASE_URL: "http://api:8000" }
-    ports: ["3000:3000"]
+    expose: ["3000"]               # not published: reached only through `proxy`
     depends_on: [api]
+
+  proxy:                           # the single public entry point: http://localhost:3000
+    image: nginx:1.27-alpine
+    ports: ["3000:80"]
+    volumes: ["./infra/proxy/nginx.conf:/etc/nginx/nginx.conf:ro"]
+    depends_on: [api, web]
 
 volumes:
   pgdata:

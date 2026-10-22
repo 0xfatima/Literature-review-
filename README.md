@@ -14,9 +14,10 @@ Prerequisites: Docker with Compose v2, Node 22 (only for running browser tests),
 git clone https://github.com/0xfatima/Literature-review-.git && cd Literature-review-
 cp .env.example .env
 # edit .env: set POSTGRES_PASSWORD, and use the SAME password inside DATABASE_URL
-docker compose up --build            # postgres, redis, migrate (one-shot), api, worker, web
+docker compose up --build            # postgres, redis, migrate (one-shot), api, worker, web, proxy
 ```
-- Web: http://localhost:3000 · API docs: http://localhost:8000/docs · Health: `/healthz`, `/readyz`, `/healthz/worker`
+- Web: http://localhost:3000 (served by the nginx `proxy`, which sends `/api/*` straight to the API) · API docs: http://localhost:8000/docs (bound to localhost only) · Health: `/healthz`, `/readyz`, `/healthz/worker`
+- Why the proxy exists: Next.js rewrites pass a client-supplied `X-Forwarded-For` through untouched, which made the per-IP login limit spoofable and, without the header, global. See `infra/proxy/nginx.conf`.
 - Migrations run automatically via the one-shot `migrate` service. Manually: `docker compose run --rm migrate alembic upgrade head`.
 - Optional **development-only** demo data (clearly labelled "[Demo data]"; refuses unless `APP_ENV=development`):
   `docker compose run --rm api python -m app.cli seed-dev` → sign in with `DEV_SEED_EMAIL` / `DEV_SEED_PASSWORD` from `.env`.
@@ -46,7 +47,7 @@ Lockfiles are committed (`requirements.lock.txt`, `apps/web/package-lock.json`).
 | Command | What it runs | Needs |
 |---|---|---|
 | `scripts/check.sh` | ruff, ruff format, mypy, pytest unit, web lint/prettier/typecheck/vitest | `pip install -c requirements.lock.txt -e ".[dev]"`, `npm ci` in `apps/web` |
-| `python scripts/run_stdlib_tests.py` | the 35 tests marked `# stdlib-only` (no packages) | Python only |
+| `python scripts/run_stdlib_tests.py` | the 38 tests marked `# stdlib-only` (no packages) | Python only |
 | `python scripts/validate_static.py` | syntax / import / config-consistency checks | Python (+ `tsc` optional) |
 | `scripts/test-integration.sh` | DB-backed API, ownership, audit, jobs, migration tests | real PostgreSQL (`TEST_DATABASE_URL`; **drops schema `public`**, so the fixture refuses any database whose name does not contain `test`) |
 | `scripts/test-e2e.sh` | Playwright browser tests against the compose stack | Docker, Node, Chromium download |

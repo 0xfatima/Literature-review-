@@ -98,10 +98,12 @@ jobs:
           sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=srs_ci/; s/^RATE_LIMIT_REGISTER_PER_HOUR=.*/RATE_LIMIT_REGISTER_PER_HOUR=500/' .env
           docker compose up -d --build
           for i in $(seq 1 60); do
-            curl -fsS localhost:8000/readyz >/dev/null && curl -fsS localhost:8000/healthz/worker >/dev/null && break
+            curl -fsS localhost:8000/readyz >/dev/null && curl -fsS localhost:8000/healthz/worker >/dev/null \
+              && curl -fsS -o /dev/null localhost:3000/login && break
             sleep 4
           done
           curl -fsS localhost:8000/readyz && curl -fsS localhost:8000/healthz/worker
+          curl -fsS -o /dev/null -w "web via edge proxy: %{http_code}\n" localhost:3000/login
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - working-directory: apps/web

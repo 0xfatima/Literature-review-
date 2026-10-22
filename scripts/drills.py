@@ -123,7 +123,7 @@ def drill_broker_outage():
 
 
 def drill_ip_limit():
-    # Through the Next.js proxy: forged leading X-Forwarded-For entries must NOT evade the per-IP bucket,
+    # Through the edge proxy: forged X-Forwarded-For entries must NOT evade the per-IP bucket,
     # and the bucket must be per real client (not one global bucket) - the latter is only observable with 2 real IPs (manual).
     c = Client(WEB); codes = []
     limit = int(os.environ.get("DRILL_LOGIN_LIMIT", "10"))
@@ -180,16 +180,16 @@ def drill_ownership():
 
 
 def drill_ip_isolation():
-    """Is the per-IP bucket per REAL client, or one global bucket behind the Next.js proxy?
-    Client 1 = the host (arrives at Next from the docker bridge gateway). Client 2 = a container on the compose
-    network (arrives from a different address). Exhaust client 1's bucket; client 2 must still get 401 (not 429).
-    If Next.js does not forward X-Forwarded-For, both look like 'the Next container' and client 2 gets 429 -> FAIL."""
+    """Is the per-IP bucket per REAL client, or one global bucket behind the edge proxy?
+    Client 1 = the host (arrives at the edge proxy from the docker bridge gateway). Client 2 = a container on the
+    compose network (arrives from a different address). Exhaust client 1's bucket; client 2 must still get 401.
+    If the edge proxy does not set X-Forwarded-For, both look like one address and client 2 gets 429 -> FAIL."""
     limit = int(os.environ.get("DRILL_LOGIN_LIMIT", "10"))
     c1 = Client(WEB); codes1 = []
     for _ in range(limit + 3):
         codes1.append(c1.call("POST", "/api/v1/auth/login", {"email": f"iso-{uuid.uuid4().hex[:8]}@example.test", "password": "wrong-password-123"})[0])
     snippet = ("import json,urllib.request,urllib.error,uuid;"
-               "r=urllib.request.Request('http://web:3000/api/v1/auth/login',method='POST',"
+               "r=urllib.request.Request('http://proxy/api/v1/auth/login',method='POST',"
                "data=json.dumps({'email':'iso2-'+uuid.uuid4().hex[:8]+'@example.test','password':'wrong-password-123'}).encode(),"
                "headers={'Content-Type':'application/json','X-SRS-CSRF':'1','Origin':'http://localhost:3000'})\n"
                "try: urllib.request.urlopen(r,timeout=10)\nexcept urllib.error.HTTPError as e: print(e.code)")

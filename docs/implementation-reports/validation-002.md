@@ -47,3 +47,24 @@ Environment: Ubuntu 24.04, Python 3.12.3, Node 22.22, PostgreSQL 16, Redis 7, de
 - `next lint` is deprecated (removed in Next 16): migrate to the ESLint CLI with flat config before upgrading.
 - Starlette warns that `TestClient` over `httpx` is deprecated; track before the next Starlette major.
 - `cli.py` has 0% test coverage (seed-dev / set-password verified manually only).
+
+
+## Addendum — CI e2e drills `ip-limit` and `ip-isolation` failed (2026-10-23)
+
+CI evidence: `ip-limit` returned 14×401 with forged `X-Forwarded-For` values (no 429: limit bypassed);
+`ip-isolation` returned 429 for a second client address (one global bucket). All other drills passed.
+
+Root cause, reproduced locally against Next.js 15.5 with a header-echo upstream: the rewrite forwarded
+`X-Forwarded-For: 10.9.9.9` exactly as the client sent it, and sent no header at all when the client sent none.
+
+Fix: nginx edge proxy (ADR A9). Local re-run of both drill patterns with the real API, Redis limiter and
+`TRUSTED_PROXY_HOPS=1`:
+
+| Path | Forged XFF ×14 | Client 1 ×13 then client 2 |
+|---|---|---|
+| Through nginx (new) | 401×10, then 429×4 | 401×10, 429×3; client 2 → **401** |
+| Straight to Next.js (old, control) | (not repeated) | 401×10, 429; client 2 → **429** |
+
+Register → login → create project → server-rendered `/projects` all succeed through the proxy.
+New guard: `tests/unit/test_edge_proxy_config.py` (stdlib-only; a mutation to `$proxy_add_x_forwarded_for` fails it).
+Still to confirm in CI: the compose stack with the `proxy` service, Playwright and all drills.

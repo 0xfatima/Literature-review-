@@ -211,3 +211,26 @@ No email infrastructure exists, so a self-service reset flow cannot be configure
 
 ## A9. Client-IP derivation for rate limiting (found in Phase 1 validation review)
 Phase-1 code keyed per-IP limits on the TCP peer (a single global bucket behind the Next.js proxy) and offered a boolean that trusted the *first* `X-Forwarded-For` entry (client-controlled). Replaced by `TRUSTED_PROXY_HOPS=N`: the client is the N-th entry from the right; shorter chains, non-IP values, or N=0 fall back to the TCP peer (`app/core/net.py`). Status: logic **executed** (7 unit tests + mutation check); runtime behaviour through Next.js **unverified** until the `ip-isolation` drill passes. See `production-readiness-review.md` §2.
+
+
+### Amendment A9 — nginx edge proxy in front of web and API (2026-10-23)
+
+**Context.** The `ip-limit` and `ip-isolation` drills failed in CI. Verified on Next.js 15.5: rewrites forward a
+client-supplied `X-Forwarded-For` verbatim and add nothing. With `TRUSTED_PROXY_HOPS=1` the API therefore (a) used
+a forged address as the per-IP key (limit bypass) and (b) without the header saw every user as the web container
+(one global bucket: about 10 bad logins per minute from anyone lock out all logins). The assumption that the
+Next.js proxy is a trustworthy hop, marked "unverified until `ip-isolation` passes" above, was wrong.
+
+**Decision.** An nginx service (`infra/proxy/nginx.conf`) is the only published port of the compose stack. It
+overwrites `X-Forwarded-For` with `$remote_addr` and routes `/api/*` directly to the API; everything else goes to
+Next.js, whose port is no longer published. The API port is bound to 127.0.0.1. `TRUSTED_PROXY_HOPS` stays 1, now
+meaning the edge proxy. `npm run dev` without Docker keeps the Next.js rewrite with `TRUSTED_PROXY_HOPS=0`
+(single developer, global bucket acceptable).
+
+**Alternatives rejected.** (1) A Next.js route-handler proxy that sets the header: Next 15 removed `request.ip`,
+so a handler has no trustworthy client address. (2) Trusting `X-Real-IP` from Next: not set either. (3) Dropping
+per-IP limits and keeping only per-account limits: leaves credential-stuffing across accounts unthrottled.
+
+**Production.** Use the platform load balancer or this proxy as the single ingress; set `TRUSTED_PROXY_HOPS` to the
+real number of header-setting hops; never expose the API port directly, because a direct caller can forge the header.
+Guarded by `tests/unit/test_edge_proxy_config.py` and the two drills.
