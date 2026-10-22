@@ -16,6 +16,17 @@ def get_for_owner(db: Session, job_id: uuid.UUID, owner_id: uuid.UUID) -> Job | 
     return db.scalar(select(Job).where(Job.id == job_id, Job.owner_id == owner_id))
 
 
+def list_for_owner(
+    db: Session, owner_id: uuid.UUID, *, project_id: uuid.UUID | None, active_only: bool, limit: int
+) -> list[Job]:
+    q = select(Job).where(Job.owner_id == owner_id)
+    if project_id is not None:
+        q = q.where(Job.project_id == project_id)
+    if active_only:
+        q = q.where(Job.status.notin_(fsm.TERMINAL_STATUSES))  # includes awaiting_input
+    return list(db.scalars(q.order_by(Job.created_at.desc(), Job.id).limit(limit)))
+
+
 def get_by_id(db: Session, job_id: uuid.UUID) -> Job | None:  # internal (worker) use only
     return db.get(Job, job_id)
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
+import { stageLabel } from "@/lib/stages";
 import type { Project, ProjectList } from "@/lib/types";
 
 export default function ProjectsPage() {
@@ -30,6 +31,8 @@ export default function ProjectsPage() {
     onSuccess: (p) => {
       setTitle("");
       setTopic("");
+      // The list (also used by the workspace's project switcher) is now stale.
+      qc.invalidateQueries({ queryKey: ["projects"] });
       router.push(`/projects/${p.id}`);
     },
     onError: fail,
@@ -53,20 +56,22 @@ export default function ProjectsPage() {
   });
   const logout = useMutation({
     mutationFn: () => apiFetch<void>("/auth/logout", { method: "POST" }),
-    onSettled: () => {
-      qc.clear();
-      router.push("/login");
-    },
+    // Full page load: drops every cached query of the old session from memory, and avoids the auth guard
+    // treating the now-missing session as "expired" (which would add ?next= and send the user back here).
+    onSettled: () => window.location.assign("/login"),
   });
 
-  if (me.isPending) return <p className="p-6">Loading…</p>;
+  if (me.isPending) return <p className="p-6 text-muted">Loading…</p>;
   if (!me.isSuccess) return null;
 
   return (
     <main className="mx-auto max-w-3xl p-6">
       <header className="mb-8 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Projects</h1>
-        <div className="flex items-center gap-3 text-sm">
+        <div>
+          <p className="text-sm text-mark">Systematic Review Scientist</p>
+          <h1 className="text-2xl font-semibold">Projects</h1>
+        </div>
+        <div className="flex items-center gap-3 text-sm text-muted">
           <span aria-label="Signed in as">{me.data.email}</span>
           <button className="btn-secondary" onClick={() => logout.mutate()}>
             Sign out
@@ -75,7 +80,7 @@ export default function ProjectsPage() {
       </header>
 
       <form
-        className="mb-8 flex flex-col gap-3 rounded-lg border border-slate-200 p-4 dark:border-slate-800"
+        className="mb-8 flex flex-col gap-3 rounded border border-line bg-panel p-4"
         onSubmit={(e) => {
           e.preventDefault();
           setError(null);
@@ -111,33 +116,35 @@ export default function ProjectsPage() {
         </button>
       </form>
 
-      <div role="alert" aria-live="polite" className="mb-3 min-h-5 text-sm text-red-700 dark:text-red-400">
+      <div role="alert" aria-live="polite" className="mb-3 min-h-5 text-sm text-danger">
         {error}
       </div>
 
-      <label className="mb-3 flex items-center gap-2 text-sm">
+      <label className="mb-3 flex items-center gap-2 text-sm text-muted">
         <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />{" "}
         Show archived
       </label>
 
-      {list.isPending && <p>Loading projects…</p>}
-      {list.isError && <p role="alert">Could not load projects.</p>}
-      {list.isSuccess && list.data.items.length === 0 && (
-        <p className="text-slate-500">No projects yet. Create one above.</p>
+      {list.isPending && <p className="text-muted">Loading projects…</p>}
+      {list.isError && (
+        <p role="alert" className="text-danger">
+          Could not load projects.
+        </p>
       )}
-      <ul className="flex flex-col gap-3">
+      {list.isSuccess && list.data.items.length === 0 && (
+        <p className="text-muted">No projects yet. Create one above to start a review.</p>
+      )}
+      <ul className="flex flex-col divide-y divide-line border-y border-line">
         {list.data?.items.map((p) => (
-          <li
-            key={p.id}
-            className="flex items-center justify-between rounded-lg border border-slate-200 p-4 dark:border-slate-800"
-          >
+          <li key={p.id} className="flex items-center justify-between gap-4 py-3">
             <div>
-              <Link className="font-medium underline" href={`/projects/${p.id}`}>
+              <Link className="font-medium text-ink" href={`/projects/${p.id}`}>
                 {p.title}
               </Link>
-              <p className="text-xs text-slate-500">
-                Status: {p.status}
-                {p.archived_at ? " · archived" : ""} · created {new Date(p.created_at).toLocaleDateString()}
+              <p className="flex flex-wrap gap-x-3 text-xs text-muted">
+                <span>{stageLabel(p.status)}</span>
+                {p.archived_at && <span className="text-mark">Archived</span>}
+                <span>Updated {new Date(p.updated_at).toLocaleDateString()}</span>
               </p>
             </div>
             <div className="flex gap-2">

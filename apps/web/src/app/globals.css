@@ -2,24 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Research IDE palette. Amber "highlighter" (--mark) is reserved for focus, selection and the current stage. */
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
+  --canvas: 22 27 36; /* #161B24 app background */
+  --panel: 28 35 48; /* #1C2330 sidebars, chat */
+  --raised: 36 45 60; /* #242D3C inputs, hover, own messages */
+  --line: 50 61 80; /* #323D50 borders, splitters */
+  --ink: 220 226 236; /* #DCE2EC body text: 13.3:1 on canvas, 10.6:1 on raised */
+  --muted: 141 154 175; /* #8D9AAF secondary text: 6.1:1 on canvas, 4.9:1 on raised (WCAG AA) */
+  --mark: 232 180 76; /* #E8B44C highlighter accent */
+  --link: 127 168 232; /* #7FA8E8 links */
+  --danger: 229 115 107; /* #E5736B */
+  --ok: 111 191 142; /* #6FBF8E */
+}
+
+html,
+body {
+  height: 100%;
 }
 body {
-  @apply bg-white text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  @apply bg-canvas font-sans text-[14px] leading-6 text-ink antialiased;
+  font-variant-numeric: tabular-nums;
 }
 :focus-visible {
-  @apply outline-2 outline-offset-2 outline-indigo-500;
+  outline: 2px solid rgb(var(--mark));
+  outline-offset: 2px;
 }
+::selection {
+  background: rgb(var(--mark) / 0.35);
+}
+a {
+  @apply text-link underline-offset-2 hover:underline;
+}
+
 .input {
-  @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900;
+  @apply w-full rounded border border-line bg-raised px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-mark focus:outline-none disabled:cursor-not-allowed disabled:opacity-60;
 }
 .btn {
-  @apply inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50;
+  @apply inline-flex items-center justify-center gap-1.5 rounded bg-mark px-3 py-1.5 text-sm font-medium text-canvas hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50;
 }
 .btn-secondary {
-  @apply inline-flex items-center justify-center rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800;
+  @apply inline-flex items-center justify-center gap-1.5 rounded border border-line px-3 py-1.5 text-sm text-ink hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50;
+}
+.btn-ghost {
+  @apply inline-flex items-center justify-center gap-1.5 rounded px-2 py-1 text-sm text-muted hover:bg-raised hover:text-ink disabled:opacity-50;
 }
 .btn-danger {
-  @apply inline-flex items-center justify-center rounded-md border border-red-600 px-3 py-2 text-sm text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950;
+  @apply inline-flex items-center justify-center gap-1.5 rounded border border-danger/60 px-3 py-1.5 text-sm text-danger hover:bg-danger/10;
+}
+.section-title {
+  @apply text-xs font-semibold text-muted;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }

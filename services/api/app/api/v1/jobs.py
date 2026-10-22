@@ -3,14 +3,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 
-from fastapi import APIRouter, Depends, Header, Response
+from fastapi import APIRouter, Depends, Header, Query, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import current_user, get_dispatcher
 from app.core.config import Settings, get_settings
 from app.db.models import Job, User
 from app.db.session import get_db
-from app.schemas.jobs import JobOut, PingJobRequest
+from app.schemas.jobs import JobList, JobOut, PingJobRequest
 from app.services import job_service, project_service
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -42,6 +42,21 @@ def start_ping(
     if not created:
         response.status_code = 200  # replay of the same Idempotency-Key
     return job
+
+
+@router.get("", response_model=JobList)
+def list_jobs(
+    project_id: uuid.UUID | None = None,
+    active: bool = False,
+    limit: int = Query(20, ge=1, le=100),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> JobList:
+    """The user's jobs, newest first. `active=true` keeps only non-terminal jobs (the status bar)."""
+    if project_id is not None:
+        project_service.get(db, user, project_id)  # 404 for a foreign project, never an empty list
+    jobs = job_service.list_(db, user, project_id=project_id, active_only=active, limit=limit)
+    return JobList(items=[JobOut.model_validate(j) for j in jobs])
 
 
 @router.get("/{job_id}", response_model=JobOut)

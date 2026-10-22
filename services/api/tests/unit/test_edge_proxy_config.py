@@ -29,9 +29,19 @@ def test_api_location_goes_directly_to_api_and_inherits_headers():
     api_block = re.search(r"location\s+/api/\s*\{(.*?)\}", conf, re.S)
     assert api_block, "no /api/ location"
     assert "proxy_pass $api_upstream" in api_block.group(1)
-    # nginx drops ALL inherited proxy_set_header directives in a block that defines its own.
-    assert "proxy_set_header" not in api_block.group(1)
     assert "http://api:8000" in conf
+
+
+def test_no_location_block_overrides_inherited_proxy_headers():
+    """nginx drops ALL inherited proxy_set_header directives in a block that defines its own. A single
+    Upgrade header in `location /` once removed Host and X-Forwarded-* for every page request."""
+    conf = _active(NGINX)
+    blocks = re.findall(r"location\s+\S+\s*\{(.*?)\}", conf, re.S)
+    assert len(blocks) >= 2
+    for body in blocks:
+        assert "proxy_set_header" not in body, body
+    for header in ("Host", "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host"):
+        assert re.search(rf"proxy_set_header\s+{header}\s", conf), header
 
 
 def test_compose_publishes_only_the_proxy_and_trusts_exactly_one_hop():

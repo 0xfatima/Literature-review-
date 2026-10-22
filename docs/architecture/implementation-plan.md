@@ -2,6 +2,11 @@
 
 Provisional mapping of your phases to spec milestones (M0–M8). When you issue Phase 1+ instructions I will follow *your* phase definitions and update this table. Each phase: plan first → build vertical slice with tests → run tests → report (rule 15) → stop for your go-ahead.
 
+> **Numbering note (2026-10-23).** The delivery roadmap supplied with the requirements is authoritative for phase
+> numbers. Its *Phase 2* is "accounts, projects and persistent chat" (done, see `docs/implementation-reports/phase-2.md`).
+> The LangGraph gate, LLM gateway and protocol work listed under "Phase 2" in the table below move to the roadmap's
+> next phases; their content and exit criteria are unchanged.
+
 **Dependency chain:** auth/projects → chat+protocol (+LangGraph spike) → search adapters → paper UI/relevance → PDFs → screening → PRISMA → extraction → synthesis/writing → audit/hardening. Nothing later can be correct without the audit/jobs/provenance plumbing from the first phases, so that plumbing is built early, not at the end (rule 8).
 
 ## First working slice (Phase 1 target)

@@ -1,13 +1,15 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { ApiError, apiFetch, json } from "@/lib/api";
+import { safeNext } from "@/lib/nav";
 
 export default function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
   const qc = useQueryClient();
+  const next = safeNext(useSearchParams().get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +24,7 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
       if (isRegister) await apiFetch("/auth/register", { method: "POST", ...json({ email, password }) });
       await apiFetch("/auth/login", { method: "POST", ...json({ email, password }) });
       await qc.invalidateQueries({ queryKey: ["me"] });
-      router.push("/projects");
+      router.push(next);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not reach the server. Please try again.");
     } finally {
@@ -32,7 +34,10 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-6">
-      <h1 className="text-2xl font-semibold">{isRegister ? "Create your account" : "Sign in"}</h1>
+      <div>
+        <p className="mb-1 text-sm text-mark">Systematic Review Scientist</p>
+        <h1 className="text-2xl font-semibold">{isRegister ? "Create your account" : "Sign in"}</h1>
+      </div>
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <div className="flex flex-col gap-1">
           <label htmlFor="email" className="text-sm font-medium">
@@ -65,12 +70,12 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
             onChange={(e) => setPassword(e.target.value)}
           />
           {isRegister && (
-            <p id="pw-hint" className="text-xs text-slate-500">
+            <p id="pw-hint" className="text-xs text-muted">
               At least 12 characters.
             </p>
           )}
         </div>
-        <div role="alert" aria-live="polite" className="min-h-5 text-sm text-red-700 dark:text-red-400">
+        <div role="alert" aria-live="polite" className="min-h-5 text-sm text-danger">
           {error}
         </div>
         <button type="submit" className="btn" disabled={busy}>
@@ -81,21 +86,21 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
         {isRegister ? (
           <>
             Already registered?{" "}
-            <Link className="underline" href="/login">
+            <Link href={next === "/projects" ? "/login" : `/login?next=${encodeURIComponent(next)}`}>
               Sign in
             </Link>
           </>
         ) : (
           <>
             New here?{" "}
-            <Link className="underline" href="/register">
+            <Link href={next === "/projects" ? "/register" : `/register?next=${encodeURIComponent(next)}`}>
               Create an account
             </Link>
           </>
         )}
       </p>
       {!isRegister && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted">
           Password recovery is not available yet. If you are locked out, ask the administrator to reset your
           password.
         </p>

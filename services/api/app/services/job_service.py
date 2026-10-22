@@ -107,6 +107,11 @@ def _dispatch(db: Session, dispatch: Dispatcher, job: Job) -> None:
         log.warning("job dispatch failed; will be re-sent by sweeper", extra={"job_id": str(job.id)})
 
 
+def list_(db: Session, user: User, *, project_id: uuid.UUID | None, active_only: bool, limit: int) -> list[Job]:
+    """Owner-scoped. Callers pass a project_id only after verifying the project is the user's own."""
+    return repo.list_for_owner(db, user.id, project_id=project_id, active_only=active_only, limit=limit)
+
+
 def get(db: Session, user: User, job_id: uuid.UUID) -> Job:
     job = repo.get_for_owner(db, job_id, user.id)
     if job is None:

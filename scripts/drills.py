@@ -232,9 +232,49 @@ def drill_ip_isolation():
         reset_rate_limits()
 
 
+def drill_restart_persistence():
+    """Phase 2 definition of done: project and chat history survive an application restart.
+    Restarts api, web and proxy containers (data lives only in PostgreSQL), then reads everything back through
+    the public proxy with the SAME session cookie (sessions are server-side rows) and with a fresh sign-in."""
+    c, email = new_user()
+    pid = c.call("POST", "/api/v1/projects", {"title": "Restart drill", "topic": "persistence"})[1]["id"]
+    cid = c.call("POST", f"/api/v1/projects/{pid}/conversations", {})[1]["id"]
+    for text in ("first before restart", "second before restart"):
+        assert c.call("POST", f"/api/v1/projects/{pid}/conversations/{cid}/messages", {"content": text})[0] == 201
+    t0 = time.time()
+    compose("restart", "api", "web", "proxy")
+    up = False
+    for _ in range(45):
+        try:
+            with urllib.request.urlopen(API + "/readyz", timeout=3) as r1, urllib.request.urlopen(WEB + "/login", timeout=3) as r2:
+                up = r1.status == 200 and r2.status == 200
+        except Exception:  # noqa: BLE001 - still starting
+            up = False
+        if up:
+            break
+        time.sleep(2)
+    downtime = round(time.time() - t0, 1)
+
+    web_same = Client(WEB); web_same.jar = c.jar
+    web_same.op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(web_same.jar))
+    same_session = web_same.call("GET", f"/api/v1/projects/{pid}/conversations/{cid}/messages")
+    fresh = Client(WEB)
+    login = fresh.call("POST", "/api/v1/auth/login", {"email": email, "password": PASSWORD})[0]
+    page = fresh.call("GET", f"/api/v1/projects/{pid}/conversations/{cid}/messages")
+    threads = fresh.call("GET", f"/api/v1/projects/{pid}/conversations")
+    contents = [m["content"] for m in (page[1] or {}).get("items", [])]
+    EVIDENCE["restart-persistence"] = {
+        "services_restarted": ["api", "web", "proxy"], "stack_ready": up, "seconds_until_ready": downtime,
+        "same_session_after_restart": same_session[0], "fresh_login": login, "messages_after_restart": contents,
+        "thread_title": ((threads[1] or {}).get("items") or [{}])[0].get("title"),
+    }
+    return (up and same_session[0] == 200 and login == 200
+            and contents == ["first before restart", "second before restart"])
+
+
 DRILLS = {"worker-kill": drill_worker_kill, "broker-outage": drill_broker_outage, "ip-limit": drill_ip_limit, "ip-isolation": drill_ip_isolation,
           "session-revocation": drill_session_revocation, "csrf": drill_csrf, "audit-immutable": drill_audit_immutable,
-          "ownership": drill_ownership}
+          "ownership": drill_ownership, "restart-persistence": drill_restart_persistence}
 
 
 def main(argv):
@@ -243,7 +283,7 @@ def main(argv):
     names = list(DRILLS) if argv[1:] == ["all"] or len(argv) == 1 else argv[1:]
     results = {}
     # cheap, non-destructive drills first; the destructive ones (kill/stop) last
-    order = sorted(names, key=lambda n: n in ("worker-kill", "broker-outage"))
+    order = sorted(names, key=lambda n: n in ("worker-kill", "broker-outage", "restart-persistence"))
     for n in order:
         try: results[n] = "PASS" if DRILLS[n]() else "FAIL"
         except Exception as e:  # noqa: BLE001

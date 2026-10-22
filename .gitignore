@@ -27,3 +27,4 @@ validation-evidence/
 *.tsbuildinfo
 next-env.d.ts.bak
 celerybeat-schedule*
+dump.rdb

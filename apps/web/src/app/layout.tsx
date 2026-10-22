@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: "Systematic Review Scientist" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <body>
         <Providers>{children}</Providers>
       </body>

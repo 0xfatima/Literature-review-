@@ -26,7 +26,8 @@ FK_ALIAS = {"owner_id": "users", "user_id": "users", "actor_id": "users", "uploa
             "search_run_id": "search_runs", "protocol_version_id": "protocol_versions",
             "protocol_criterion_id": "protocol_criteria", "screening_decision_id": "screening_decisions",
             "rerun_of_job_id": "jobs", "study_id": "studies", "owner_id": "users",
-            "project_id": "projects", "conversation_id": "conversations"}
+            "project_id": "projects", "conversation_id": "conversations",
+            "created_by": "users", "author_id": "users"}
 fk_by_entity = {}
 for name, body in ents.items():
     for line in body.splitlines():

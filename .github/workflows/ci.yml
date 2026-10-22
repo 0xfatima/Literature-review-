@@ -95,7 +95,9 @@ jobs:
       - name: Start stack
         run: |
           cp .env.example .env
-          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=srs_ci/; s/^RATE_LIMIT_REGISTER_PER_HOUR=.*/RATE_LIMIT_REGISTER_PER_HOUR=500/' .env
+          # The browser suite signs in ~15-30 times a minute from one address (more with retries): raise the login
+          # limit for this stack only; the drills are told the same number via DRILL_LOGIN_LIMIT.
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=srs_ci/; s/^RATE_LIMIT_REGISTER_PER_HOUR=.*/RATE_LIMIT_REGISTER_PER_HOUR=500/; s/^RATE_LIMIT_LOGIN_PER_MIN=.*/RATE_LIMIT_LOGIN_PER_MIN=100/' .env
           docker compose up -d --build
           for i in $(seq 1 60); do
             curl -fsS localhost:8000/readyz >/dev/null && curl -fsS localhost:8000/healthz/worker >/dev/null \
@@ -111,11 +113,11 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
           E2E_BASE_URL=http://localhost:3000 PLAYWRIGHT_JSON_OUTPUT_NAME=pw.json npx playwright test --reporter=json,list
-          node -e "const s=require('./pw.json').stats; console.log(s); if(s.unexpected||s.skipped||s.flaky||s.expected<5) process.exit(1)"
-      - name: Live drills (ownership, CSRF, audit immutability, session revocation, IP limit, broker outage, worker SIGKILL)
+          node -e "const s=require('./pw.json').stats; console.log(s); if(s.unexpected||s.skipped||s.flaky||s.expected<13) process.exit(1)"
+      - name: Live drills (ownership, CSRF, audit immutability, session revocation, IP limit, broker outage, worker SIGKILL, restart persistence)
         run: |
           sleep 65
-          python scripts/drills.py run all
+          DRILL_LOGIN_LIMIT=100 python scripts/drills.py run all
       - uses: actions/upload-artifact@v4
         if: failure()
         with: { name: playwright-report, path: apps/web/playwright-report, if-no-files-found: ignore }

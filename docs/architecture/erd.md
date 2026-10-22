@@ -86,14 +86,23 @@ erDiagram
   conversations {
     uuid id PK
     uuid project_id FK
+    uuid created_by FK
     string title
+    string title_source
+    int message_count
+    int row_version
+    timestamptz updated_at
+    timestamptz last_message_at
   }
   messages {
     uuid id PK
     uuid conversation_id FK
+    int seq UK
+    uuid author_id FK
     string role
     text content
-    jsonb structured_payload
+    jsonb payload
+    uuid client_message_id UK
     timestamptz created_at
   }
   protocol_versions {
@@ -389,3 +398,14 @@ erDiagram
 - `screening_decisions` are append-only; an override is a new row with `supersedes_id`.
 - Large text (`document_pages.text`) is isolated from hot tables; raw PDFs live in object storage, referenced by `storage_key`.
 - **Deletion/retention (decided in Phase 1):** deleting a project hard-deletes the project and all dependent rows (cascade) and, in later phases, purges its stored objects. `audit_events` are retained (ids, action names, timestamps, actor) and contain **no free-text user content** (titles/topics are never written to the log; only changed field *names*). Account deletion is not implemented yet (`users` FKs are RESTRICT) and is listed as a limitation.
+
+
+### Phase 2 notes (implemented in migration `0002_conversations`)
+
+- `conversations` have no owner column: ownership is inherited from `projects.owner_id`, so it cannot drift.
+  Every conversation lookup is scoped by `project_id` after the owner-scoped project lookup.
+- `messages.seq` is unique per conversation and gap-free (assigned under a row lock on the conversation);
+  `(conversation_id, client_message_id)` is unique where present, so a retried send is stored once.
+- `messages.payload` (named `structured_payload` in the Phase 0 sketch) is reserved for approval cards and citations.
+- `created_by` / `author_id` are `ON DELETE SET NULL`; deleting a conversation cascades to its messages, and
+  deleting a project cascades to its conversations.

@@ -1,4 +1,11 @@
+import { Suspense } from "react";
 import AuthForm from "@/components/auth/AuthForm";
+
 export default function RegisterPage() {
-  return <AuthForm mode="register" />;
+  // AuthForm reads ?next= (useSearchParams), which requires a Suspense boundary for static rendering.
+  return (
+    <Suspense>
+      <AuthForm mode="register" />
+    </Suspense>
+  );
 }

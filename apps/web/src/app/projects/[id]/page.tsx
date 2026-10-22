@@ -1,74 +1,158 @@
 "use client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { use, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, use, useCallback, useEffect, useState } from "react";
+import ChatPanel from "@/components/chat/ChatPanel";
 import IdeShell from "@/components/layout/IdeShell";
+import Sidebar from "@/components/sidebar/Sidebar";
+import StatusBar from "@/components/status/StatusBar";
+import { StatusProvider, useStatus } from "@/components/status/StatusContext";
+import Workspace, { TABS, type TabId } from "@/components/workspace/Workspace";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
-import type { Project } from "@/lib/types";
+import type { Conversation, ConversationList, Project } from "@/lib/types";
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const qc = useQueryClient();
-  const me = useRequireAuth();
-  const [title, setTitle] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  return (
+    <Suspense fallback={<p className="p-6 text-muted">Loading…</p>}>
+      <StatusProvider>
+        <ProjectWorkspace id={id} />
+      </StatusProvider>
+    </Suspense>
+  );
+}
 
-  const q = useQuery({
+function ProjectWorkspace({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const me = useRequireAuth();
+  const { setSave, reportError } = useStatus();
+  const [title, setTitle] = useState<string | null>(null);
+
+  const tabParam = search.get("tab");
+  const tab: TabId = TABS.some((t) => t.id === tabParam) ? (tabParam as TabId) : "status";
+  const threadParam = search.get("c");
+
+  const setParams = useCallback(
+    (patch: Record<string, string | null>) => {
+      const next = new URLSearchParams(search.toString());
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null) next.delete(k);
+        else next.set(k, v);
+      }
+      const qs = next.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, search],
+  );
+
+  const project = useQuery({
     queryKey: ["project", id],
     queryFn: () => apiFetch<Project>(`/projects/${id}`),
     enabled: me.isSuccess,
     retry: false,
   });
+  const conversations = useQuery({
+    queryKey: ["conversations", id],
+    queryFn: () => apiFetch<ConversationList>(`/projects/${id}/conversations?limit=200`),
+    enabled: project.isSuccess,
+  });
+
+  const list = conversations.data?.items;
+  const selected: Conversation | null = list?.find((c) => c.id === threadParam) ?? null;
+
+  // No thread in the URL (or one that no longer exists): open the most recently active thread, if any.
+  useEffect(() => {
+    if (!list) return;
+    if (threadParam && list.some((c) => c.id === threadParam)) return;
+    const fallback = list[0]?.id ?? null;
+    if (fallback !== threadParam) setParams({ c: fallback });
+  }, [list, threadParam, setParams]);
+
+  const createThread = useMutation({
+    mutationFn: () =>
+      apiFetch<Conversation>(`/projects/${id}/conversations`, { method: "POST", ...json({}) }),
+    onSuccess: (c) => {
+      qc.setQueryData<ConversationList>(["conversations", id], (old) =>
+        old ? { ...old, items: [c, ...old.items], total: old.total + 1 } : old,
+      );
+      setParams({ c: c.id });
+      setSave({ kind: "saved", at: new Date() });
+    },
+    onError: (e) => reportError(e instanceof ApiError ? e.message : "Could not start a thread."),
+  });
+
   const rename = useMutation({
     mutationFn: (p: Project) =>
       apiFetch<Project>(`/projects/${p.id}`, {
         method: "PATCH",
         ...json({ expected_version: p.row_version, title }),
       }),
+    onMutate: () => setSave({ kind: "saving" }),
     onSuccess: (p) => {
       qc.setQueryData(["project", id], p);
+      qc.invalidateQueries({ queryKey: ["projects"] });
       setTitle(null);
-      setMessage("Saved.");
+      setSave({ kind: "saved", at: new Date() });
     },
-    onError: (e) =>
-      setMessage(
+    onError: (e) => {
+      setSave({ kind: "failed", message: "project title" });
+      reportError(
         e instanceof ApiError && e.code === "version_conflict"
-          ? "Changed elsewhere. Reload to see the latest version."
-          : "Could not save.",
-      ),
+          ? "This project changed elsewhere. Reload to see the latest version."
+          : "Could not save the project title.",
+      );
+    },
   });
 
-  if (me.isPending || (me.isSuccess && q.isPending)) return <p className="p-6">Loading…</p>;
+  const logout = useMutation({
+    mutationFn: () => apiFetch<void>("/auth/logout", { method: "POST" }),
+    // Full page load: drops every cached query of the old session from memory, and avoids the auth guard
+    // treating the now-missing session as "expired" (which would add ?next= and send the user back here).
+    onSettled: () => window.location.assign("/login"),
+  });
+
+  if (me.isPending || (me.isSuccess && project.isPending)) return <p className="p-6 text-muted">Loading…</p>;
   if (!me.isSuccess) return null;
-  if (q.error instanceof ApiError && q.error.status === 404)
+  if (project.error instanceof ApiError && project.error.status === 404)
     return (
-      <main className="p-6">
+      <main className="mx-auto max-w-prose p-10">
         <h1 className="text-xl font-semibold">Project not found</h1>
-        <p className="mt-2 text-sm">It may have been deleted, or you may not have access.</p>
-        <Link className="mt-4 inline-block underline" href="/projects">
+        <p className="mt-2 text-muted">It may have been deleted, or you may not have access to it.</p>
+        <Link className="mt-4 inline-block" href="/projects">
           Back to projects
         </Link>
       </main>
     );
-  if (!q.isSuccess)
+  if (!project.isSuccess)
     return (
-      <p role="alert" className="p-6">
-        Could not load this project.
+      <p role="alert" className="p-6 text-danger">
+        Could not load this project.{" "}
+        <button type="button" className="underline" onClick={() => project.refetch()}>
+          Try again
+        </button>
       </p>
     );
-  const p = q.data;
-  const editing = title !== null;
+
+  const p = project.data;
+  const canWrite = p.archived_at === null;
 
   return (
     <IdeShell
-      header={
+      topBar={
         <>
-          <div className="flex items-center gap-3">
-            <Link href="/projects" className="text-sm underline">
-              ← Projects
+          <div className="flex min-w-0 items-center gap-3">
+            <Link href="/projects" className="shrink-0 text-sm">
+              Projects
             </Link>
-            {editing ? (
+            <span aria-hidden className="text-muted">
+              /
+            </span>
+            {title !== null ? (
               <form
                 className="flex gap-2"
                 onSubmit={(e) => {
@@ -81,59 +165,75 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                 </label>
                 <input
                   id="rename"
-                  className="input"
+                  className="input py-1"
                   value={title}
                   maxLength={200}
+                  autoFocus
                   onChange={(e) => setTitle(e.target.value)}
                 />
                 <button className="btn" disabled={!title.trim() || rename.isPending}>
                   Save
                 </button>
-                <button type="button" className="btn-secondary" onClick={() => setTitle(null)}>
+                <button type="button" className="btn-ghost" onClick={() => setTitle(null)}>
                   Cancel
                 </button>
               </form>
             ) : (
               <>
-                <h1 className="text-lg font-semibold">{p.title}</h1>
-                <button
-                  className="btn-secondary"
-                  onClick={() => {
-                    setMessage(null);
-                    setTitle(p.title);
-                  }}
-                >
+                <h1 className="truncate font-semibold" title={p.title}>
+                  {p.title}
+                </h1>
+                <button type="button" className="btn-ghost text-xs" onClick={() => setTitle(p.title)}>
                   Rename
                 </button>
               </>
             )}
           </div>
-          <span role="status" className="text-xs text-slate-500">
-            {message}
-          </span>
+          <div className="flex shrink-0 items-center gap-2 text-xs text-muted">
+            <span aria-label="Signed in as">{me.data.email}</span>
+            <button type="button" className="btn-ghost text-xs" onClick={() => logout.mutate()}>
+              Sign out
+            </button>
+          </div>
         </>
       }
-      statusBar={
-        <>
-          Status: {p.status} · version {p.row_version}
-          {p.archived_at ? " · archived" : ""}
-        </>
+      sidebar={
+        <Sidebar
+          projectId={id}
+          conversations={conversations.data}
+          selectedId={selected?.id ?? null}
+          onSelect={(c) => setParams({ c: c.id })}
+          onNewThread={() => createThread.mutate()}
+          canWrite={canWrite}
+          creating={createThread.isPending}
+        />
       }
-    >
-      <h2 className="mb-4 text-xl font-semibold">Overview</h2>
-      <dl className="grid max-w-2xl grid-cols-[10rem_1fr] gap-y-3 text-sm">
-        <dt className="font-medium">Original topic</dt>
-        <dd className="whitespace-pre-wrap">{p.topic_original}</dd>
-        <dt className="font-medium">Status</dt>
-        <dd>{p.status}</dd>
-        <dt className="font-medium">Created</dt>
-        <dd>{new Date(p.created_at).toLocaleString()}</dd>
-        <dt className="font-medium">Last updated</dt>
-        <dd>{new Date(p.updated_at).toLocaleString()}</dd>
-      </dl>
-      <p className="mt-8 text-sm text-slate-500">
-        Protocol, search, screening and later stages are built in subsequent phases.
-      </p>
-    </IdeShell>
+      chat={
+        <ChatPanel
+          project={p}
+          conversation={selected}
+          onNewThread={() => createThread.mutate()}
+          onDeleted={(deletedId) => {
+            // Drop it from the cached list first so the fallback never re-selects a deleted thread.
+            qc.setQueryData<ConversationList>(["conversations", id], (old) =>
+              old
+                ? { ...old, items: old.items.filter((c) => c.id !== deletedId), total: old.total - 1 }
+                : old,
+            );
+            setParams({ c: null });
+          }}
+          creating={createThread.isPending}
+        />
+      }
+      workspace={
+        <Workspace
+          project={p}
+          conversations={conversations.data}
+          tab={tab}
+          onTab={(t) => setParams({ tab: t })}
+        />
+      }
+      statusBar={<StatusBar project={p} />}
+    />
   );
 }

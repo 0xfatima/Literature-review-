@@ -3,8 +3,8 @@
 Human-in-the-loop systematic-review workbench (protocol → search → screening → PDFs → evidence extraction → synthesis → draft) with provenance and an audit trail.
 Source of truth: `docs/requirements/`. Architecture: `docs/architecture/ADR-0001-initial-architecture.md` (Accepted, with amendments A1–A8).
 
-**Status: Phase 1 (foundation).** Registration/login, projects, ownership enforcement, migrations, audit events, job queue/worker, health checks, Docker Compose, CI.
-Lockfiles are committed. Backend lint/format/type checks, migrations and the full pytest suite (unit + integration on real PostgreSQL/Redis), and the web lint/format/typecheck/unit/build have been executed; see `docs/implementation-reports/validation-002.md` for exact results and for what has **not** yet been run (Playwright, Docker image builds, live drills: those run in CI).
+**Status: Phase 2 (accounts, projects, persistent chat) complete pending CI.** Registration/login, projects (create, rename, archive, delete), project-scoped chat threads with persistent history, the dark IDE workspace (resizable panels, live job status), ownership enforced on every route, background jobs, health checks, Docker Compose, CI.
+The research assistant is **not connected yet**: chat stores your messages and says so; it never invents replies. Exact test results: `docs/implementation-reports/phase-2.md`.
 
 ## Quick start (Docker Compose)
 
@@ -47,7 +47,7 @@ Lockfiles are committed (`requirements.lock.txt`, `apps/web/package-lock.json`).
 | Command | What it runs | Needs |
 |---|---|---|
 | `scripts/check.sh` | ruff, ruff format, mypy, pytest unit, web lint/prettier/typecheck/vitest | `pip install -c requirements.lock.txt -e ".[dev]"`, `npm ci` in `apps/web` |
-| `python scripts/run_stdlib_tests.py` | the 38 tests marked `# stdlib-only` (no packages) | Python only |
+| `python scripts/run_stdlib_tests.py` | the 39 tests marked `# stdlib-only` (no packages) | Python only |
 | `python scripts/validate_static.py` | syntax / import / config-consistency checks | Python (+ `tsc` optional) |
 | `scripts/test-integration.sh` | DB-backed API, ownership, audit, jobs, migration tests | real PostgreSQL (`TEST_DATABASE_URL`; **drops schema `public`**, so the fixture refuses any database whose name does not contain `test`) |
 | `scripts/test-e2e.sh` | Playwright browser tests against the compose stack | Docker, Node, Chromium download |
@@ -64,6 +64,6 @@ docker compose run --rm api python -m app.cli set-password user@example.com   # 
 `apps/web` Next.js UI · `services/api/app` FastAPI + services + SQLAlchemy + Celery tasks (`jobs/`) · `services/api/app/db/migrations` Alembic · `infra/docker` Dockerfiles · `docs/` requirements, architecture, runbooks, per-phase reports · `scripts/` dev/CI helpers.
 Celery tasks live in `app/jobs/` (one package for API and worker) rather than `services/worker/tasks/` as sketched in the spec; the worker is a separate *process* from the same code.
 
-## Known limitations (Phase 1)
-No email verification, MFA or password-reset email · registration reveals whether an email is registered · account deletion not implemented · no OpenAPI→TypeScript client generation yet (API types are hand-written) · no research features yet (protocol, search, screening, PDFs…) · the chat panel is a labelled, disabled placeholder.
+## Known limitations (Phase 2)
+No email verification, MFA or password-reset email · registration reveals whether an email is registered · account deletion not implemented · no OpenAPI→TypeScript client generation yet (API types are hand-written) · no research features yet (protocol, search, screening, PDFs…) · the chat has no assistant yet (messages are stored, no replies) · Papers/Tables/Artifacts tabs and Files show empty states until their phases.
 

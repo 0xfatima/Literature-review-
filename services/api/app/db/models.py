@@ -1,4 +1,4 @@
-"""ORM models for Phase 1: users, auth_sessions, projects, audit_events, jobs.
+"""ORM models: users, auth_sessions, projects, audit_events, jobs (Phase 1); conversations, messages (Phase 2).
 
 Password-reset tokens are intentionally absent (recovery is deferred; see ADR amendment A8).
 """
@@ -9,7 +9,18 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -150,4 +161,63 @@ class Job(Base):
         ),
         Index("ix_jobs_status_heartbeat", "status", "heartbeat_at"),
         Index("ix_jobs_owner_created", "owner_id", "created_at"),
+    )
+
+
+MESSAGE_ROLES = ("user", "assistant", "system")
+
+
+class Conversation(Base):
+    """A chat thread inside one project. Ownership is inherited from the project (no owner column to drift)."""
+
+    __tablename__ = "conversations"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    # 'auto' titles are replaced by the first message; a title the user typed ('user') is never overwritten.
+    title_source: Mapped[str] = mapped_column(String(8), nullable=False, server_default="auto")
+    message_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    created_at: Mapped[datetime] = now_col()
+    updated_at: Mapped[datetime] = now_col()
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("title_source in ('auto','user')", name="title_source"),
+        CheckConstraint("message_count >= 0", name="message_count"),
+        Index("ix_conversations_project_activity", "project_id", "updated_at"),
+    )
+
+
+class Message(Base):
+    """One chat message. `seq` gives a gap-free, deterministic order per conversation (timestamps can tie).
+    `payload` is reserved for structured content (approval cards, citations) added by later phases."""
+
+    __tablename__ = "messages"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    author_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    client_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = now_col()
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "seq", name="uq_messages_conversation_id"),
+        CheckConstraint("role in ('user','assistant','system')", name="role"),
+        CheckConstraint("seq >= 1", name="seq"),
+        Index(
+            "uq_messages_conversation_client_id",
+            "conversation_id",
+            "client_message_id",
+            unique=True,
+            postgresql_where=text("client_message_id IS NOT NULL"),
+        ),
     )
