@@ -23,7 +23,8 @@ def test_upgrade_downgrade_upgrade_roundtrip():
 
 def test_job_idempotency_indexes_are_partial_and_as_designed():
     with get_engine().connect() as c:
-        defs = {r[0]: r[1] for r in c.execute(text("SELECT indexname, indexdef FROM pg_indexes WHERE tablename='jobs'"))}
+        rows = c.execute(text("SELECT indexname, indexdef FROM pg_indexes WHERE tablename='jobs'"))
+        defs = {r[0]: r[1] for r in rows}
     active = defs["uq_jobs_active_fingerprint"]
     assert "UNIQUE" in active and "queued" in active and "running" in active
     assert "succeeded" not in active and "failed" not in active  # terminal states must not be constrained
@@ -63,11 +64,13 @@ def test_worker_health_reflects_celery_ping(make_client, monkeypatch):
 
 
 def test_every_model_declared_index_exists_in_the_migrated_database():
-    """Proves the ORM index definitions (incl. the partial/expression jobs indexes) construct AND match the migration by name."""
+    """The ORM index definitions (incl. the partial/expression jobs indexes) must construct AND match the migration."""
     from app.db import models
     insp = inspect(get_engine())
     for table in models.Base.metadata.sorted_tables:
-        in_db = {i["name"] for i in insp.get_indexes(table.name)} | {u["name"] for u in insp.get_unique_constraints(table.name)}
+        indexes = {i["name"] for i in insp.get_indexes(table.name)}
+        uniques = {u["name"] for u in insp.get_unique_constraints(table.name)}
+        in_db = indexes | uniques
         for idx in table.indexes:
             assert idx.name in in_db, f"{table.name}.{idx.name} declared in models but absent from migrated DB"
 
@@ -75,9 +78,11 @@ def test_every_model_declared_index_exists_in_the_migrated_database():
 def test_every_model_declared_constraint_name_matches_the_migrated_database():
     """Guards the Alembic naming-convention interaction (no double 'ck_' prefixes, no unnamed drift)."""
     from sqlalchemy import CheckConstraint, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
+
     from app.db import models
     with get_engine().connect() as c:
-        db_names = {r[0] for r in c.execute(text("SELECT conname FROM pg_constraint WHERE connamespace = 'public'::regnamespace"))}
+        rows = c.execute(text("SELECT conname FROM pg_constraint WHERE connamespace = 'public'::regnamespace"))
+        db_names = {r[0] for r in rows}
     for table in models.Base.metadata.sorted_tables:
         for con in table.constraints:
             if isinstance(con, (CheckConstraint, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint)):

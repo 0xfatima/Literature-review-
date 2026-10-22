@@ -1,8 +1,6 @@
 import uuid
 
 
-
-
 def mk(c, title="Review A", topic="Effect of X on Y"):
     r = c.post("/api/v1/projects", json={"title": title, "topic": topic})
     assert r.status_code == 201, r.text

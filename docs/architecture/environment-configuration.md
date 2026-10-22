@@ -1,6 +1,6 @@
 # Environment configuration plan
 
-Principles: 12-factor; all secrets/URLs/model names/timeouts/flags via environment variables; `.env.example` holds names and placeholders only; `pydantic-settings` validates at startup and **fails fast** in `staging`/`production` if a required value is missing or unsafe (e.g. `COOKIE_SECURE=false`, default `SESSION_SECRET`).
+Principles: 12-factor; all secrets/URLs/model names/timeouts/flags via environment variables; `.env.example` holds names and placeholders only; `pydantic-settings` validates at startup and **fails fast** in `staging`/`production` if a required value is missing or unsafe (e.g. `COOKIE_SECURE=false`, a missing or placeholder `SESSION_SECRET`).
 
 ## Environments
 

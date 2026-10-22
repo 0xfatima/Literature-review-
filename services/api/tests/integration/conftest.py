@@ -5,7 +5,6 @@ import pathlib
 import uuid
 
 import pytest
-
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient

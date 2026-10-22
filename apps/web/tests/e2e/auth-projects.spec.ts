@@ -60,7 +60,9 @@ test("wrong password shows a generic error", async ({ page }) => {
   await page.getByLabel("Email").fill(uniqueEmail());
   await page.getByLabel("Password").fill("not-the-password-123");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("alert")).toContainText("Incorrect email or password");
+  // Scoped to <main>: Next.js injects its own role="alert" route announcer, so an unscoped locator matches two elements
+  // (strict mode violation). The expected generic message is unchanged.
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Incorrect email or password");
 });
 
 test("another user cannot open my project by URL", async ({ browser }) => {

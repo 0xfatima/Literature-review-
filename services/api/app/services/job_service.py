@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
@@ -23,7 +23,7 @@ TASK_FOR_TYPE = {"system.ping": "system.ping"}
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def enqueue(db: Session, settings: Settings, dispatch: Dispatcher, user: User, *, job_type: str,
