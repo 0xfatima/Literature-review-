@@ -52,11 +52,13 @@ def set_password(email: str, password: str) -> None:
         if u is None:
             raise SystemExit("No such user.")
         u.password_hash = passwords.hash_password(password)
-        from datetime import datetime, timezone
+        from datetime import UTC, datetime
+
         from sqlalchemy import update
+
         from app.db.models import AuthSession
         db.execute(update(AuthSession).where(AuthSession.user_id == u.id, AuthSession.revoked_at.is_(None))
-                   .values(revoked_at=datetime.now(timezone.utc)))  # a reset must end existing sessions
+                   .values(revoked_at=datetime.now(UTC)))  # a reset must end existing sessions
         audit_service.record(db, action="auth.password_reset_by_operator", entity_type="user", entity_id=u.id,
                              actor_id=None, reason="operator CLI")
         db.commit()
@@ -66,11 +68,15 @@ def seed_dev() -> None:
     s = get_settings()
     if s.app_env != "development":
         raise SystemExit(f"Refusing to seed: APP_ENV is '{s.app_env}', not 'development'.")
+    password = s.dev_seed_password
+    if not password:
+        raise SystemExit("DEV_SEED_PASSWORD is not set. Copy .env.example to .env (it has a development placeholder) "
+                         "or set DEV_SEED_PASSWORD, then run seed-dev again.")
     with get_sessionmaker()() as db:
         email = normalize_email(s.dev_seed_email)
         u = users_repo.get_by_email(db, email)
         if u is None:
-            u = users_repo.add(db, User(email=email, password_hash=passwords.hash_password(s.dev_seed_password)))
+            u = users_repo.add(db, User(email=email, password_hash=passwords.hash_password(password)))
             audit_service.record(db, action="user.registered", entity_type="user", entity_id=u.id, actor_id=None,
                                  reason="dev seed (demo data)")
         from app.repositories import projects as prepo

@@ -33,14 +33,17 @@ class Settings(BaseSettings):
 
     session_cookie_name: str = "srs_session"
     session_ttl_hours: int = 168
-    session_secret: str = "CHANGE_ME_LONG_RANDOM"  # reserved for signed values in later phases; not used for session tokens
+    # No default on purpose. Reserved for signed values in later phases (sessions use random opaque tokens today).
+    # Outside development/test a missing, short or placeholder value is refused at startup (settings_checks).
+    session_secret: str | None = None
     cookie_secure: bool = False
 
     rate_limit_login_per_min: int = 10
     rate_limit_register_per_hour: int = 20
 
     dev_seed_email: str = "demo@example.invalid"
-    dev_seed_password: str = "demo-password-change-me"
+    # No default on purpose: set DEV_SEED_PASSWORD (.env.example has a development placeholder). seed-dev only.
+    dev_seed_password: str | None = None
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -51,7 +54,7 @@ class Settings(BaseSettings):
         return origins
 
     @model_validator(mode="after")
-    def _fail_fast_outside_local(self) -> "Settings":
+    def _fail_fast_outside_local(self) -> Settings:
         problems = find_unsafe_settings(self.model_dump())
         if problems:
             raise ValueError("Unsafe configuration: " + "; ".join(problems))

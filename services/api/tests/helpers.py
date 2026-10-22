@@ -8,6 +8,6 @@ def raises(exc_type, contains: str | None = None):
         yield
     except exc_type as e:  # noqa: PERF203
         if contains is not None and contains not in str(e):
-            raise AssertionError(f"expected {contains!r} in {e!r}")
+            raise AssertionError(f"expected {contains!r} in {e!r}") from e
         return
     raise AssertionError(f"expected {exc_type.__name__} was not raised")

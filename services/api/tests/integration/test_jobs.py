@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import update
 
@@ -85,8 +85,9 @@ def test_claim_is_compare_and_set(user_client, db):
 def test_finish_enforces_state_machine(user_client, db):
     c, _, _ = user_client()
     jid = uuid.UUID(post(c).json()["id"])
-    from app.jobs.fsm import InvalidTransition
     import pytest
+
+    from app.jobs.fsm import InvalidTransition
     with pytest.raises(InvalidTransition):
         repo.finish(db, jid, fsm.QUEUED, fsm.SUCCEEDED)  # cannot skip 'running'
 
@@ -97,7 +98,7 @@ def test_broker_outage_does_not_lose_the_job_and_sweeper_resends(user_client, di
     r = post(c, {"delay_s": 9})
     assert r.status_code == 202 and r.json()["status"] == "queued" and dispatcher.sent == []
     dispatcher.fail = False
-    future = datetime.now(timezone.utc) + timedelta(seconds=get_settings().job_requeue_queued_after_s + 5)
+    future = datetime.now(UTC) + timedelta(seconds=get_settings().job_requeue_queued_after_s + 5)
     out = job_service.sweep(db, get_settings(), dispatcher, now=future)
     assert out["redispatched"] >= 1 and r.json()["id"] in [j for _, j in dispatcher.sent]
 
@@ -106,7 +107,7 @@ def test_worker_crash_recovery_requeues_then_fails_after_max_attempts(user_clien
     c, _, _ = user_client()
     jid = post(c, {"delay_s": 11}).json()["id"]
     s = get_settings()
-    long_ago = datetime.now(timezone.utc) - timedelta(seconds=s.job_stale_after_s + 30)
+    long_ago = datetime.now(UTC) - timedelta(seconds=s.job_stale_after_s + 30)
     # attempt 1 started, worker died (heartbeat stale)
     force(db, jid, status="running", attempts=1, started_at=long_ago, heartbeat_at=long_ago)
     out = job_service.sweep(db, s, dispatcher)
@@ -122,7 +123,7 @@ def test_worker_crash_recovery_requeues_then_fails_after_max_attempts(user_clien
 def test_healthy_running_job_is_left_alone_by_sweeper(user_client, dispatcher, db):
     c, _, _ = user_client()
     jid = post(c, {"delay_s": 13}).json()["id"]
-    force(db, jid, status="running", attempts=1, heartbeat_at=datetime.now(timezone.utc))
+    force(db, jid, status="running", attempts=1, heartbeat_at=datetime.now(UTC))
     job_service.sweep(db, get_settings(), dispatcher)
     assert repo.get_by_id(db, uuid.UUID(jid)).status == "running"
 
