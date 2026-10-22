@@ -68,3 +68,16 @@ Fix: nginx edge proxy (ADR A9). Local re-run of both drill patterns with the rea
 Register → login → create project → server-rendered `/projects` all succeed through the proxy.
 New guard: `tests/unit/test_edge_proxy_config.py` (stdlib-only; a mutation to `$proxy_add_x_forwarded_for` fails it).
 Still to confirm in CI: the compose stack with the `proxy` service, Playwright and all drills.
+
+## Addendum 2 — drills interfered with each other after the proxy fix
+
+CI after the edge-proxy fix: `ip-limit` and `ip-isolation` PASS. `session-revocation`, `csrf` and `audit-immutable`
+errored with `login failed 429`. Cause (drill harness, not the application):
+
+1. The IP drills now correctly exhaust the per-IP bucket of the CI host's address, which the later drills also use.
+2. `new_user()` meant to wait out the limit via `Retry-After`, but looked up `"Retry-After"` while uvicorn sends
+   `retry-after`. Verified locally: the old lookup returned `None`, so it slept the 5 s default three times and gave up
+   inside the 60 s window.
+
+Fix: header lookups in `scripts/drills.py` are case-insensitive, and the two IP drills reset the `rl:*` Redis buckets
+before and after running. Verified the Lua cleanup locally: deletes only `rl:*` keys and leaves other keys intact.

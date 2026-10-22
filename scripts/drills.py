@@ -31,6 +31,21 @@ def psql(sql):
     return compose("exec", "-T", "postgres", "psql", "-U", "srs", "-d", "srs", "-At", "-c", sql, check=False)
 
 
+def _lower(headers):
+    # HTTP header names are case-insensitive and uvicorn/h11 sends them lowercase ("retry-after").
+    return {k.lower(): v for k, v in headers.items()}
+
+
+def reset_rate_limits():
+    """Delete every rate-limit bucket (keys rl:*) in the stack's Redis. The IP drills deliberately exhaust the
+    bucket of the CI host's address; without this, later drills that log in from the same address get 429.
+    Drill harness only: never part of the application."""
+    lua = "local n=0 for _,k in ipairs(redis.call('KEYS', ARGV[1])) do redis.call('DEL', k) n=n+1 end return n"
+    r = compose("exec", "-T", "redis", "redis-cli", "EVAL", lua, "0", "rl:*", check=False)
+    if r.returncode != 0:
+        raise RuntimeError(f"could not reset rate limits: {r.stderr.strip()[:200]}")
+
+
 class Client:
     def __init__(self, base=API, extra_headers=None):
         self.base, self.jar = base, http.cookiejar.CookieJar()
@@ -45,12 +60,12 @@ class Client:
         req = urllib.request.Request(self.base + path, data=data, method=method, headers=h)
         try:
             with self.op.open(req, timeout=30) as r:
-                raw = r.read(); return r.status, (json.loads(raw) if raw else None), dict(r.headers)
+                raw = r.read(); return r.status, (json.loads(raw) if raw else None), _lower(r.headers)
         except urllib.error.HTTPError as e:
             raw = e.read(); 
             try: parsed = json.loads(raw)
             except Exception: parsed = {"raw": raw.decode(errors="replace")[:200]}
-            return e.code, parsed, dict(e.headers)
+            return e.code, parsed, _lower(e.headers)
 
     def cookie(self, name="srs_session"):
         return next((c.value for c in self.jar if c.name == name), None)
@@ -63,7 +78,7 @@ def new_user(base=API):
     for _ in range(3):  # our own login limiter may be warm from earlier drills: honour Retry-After
         s2, _, h = c.call("POST", "/api/v1/auth/login", {"email": email, "password": PASSWORD})
         if s2 != 429: break
-        time.sleep(int(h.get("Retry-After", "5")) + 1)
+        time.sleep(int(h.get("retry-after", "5")) + 1)
     assert s2 == 200, f"login failed {s2}"
     return c, email
 
@@ -122,7 +137,7 @@ def drill_broker_outage():
     return s == 202 and row == "queued|t" and elapsed < 15 and bool(j and j["status"] == "succeeded")
 
 
-def drill_ip_limit():
+def _drill_ip_limit_body():
     # Through the edge proxy: forged X-Forwarded-For entries must NOT evade the per-IP bucket,
     # and the bucket must be per real client (not one global bucket) - the latter is only observable with 2 real IPs (manual).
     c = Client(WEB); codes = []
@@ -179,7 +194,7 @@ def drill_ownership():
     return res == {"B_get": 404, "B_patch": 404, "B_delete": 404, "B_list_count": 0, "B_missing": 404, "A_still_there": "A-private"}
 
 
-def drill_ip_isolation():
+def _drill_ip_isolation_body():
     """Is the per-IP bucket per REAL client, or one global bucket behind the edge proxy?
     Client 1 = the host (arrives at the edge proxy from the docker bridge gateway). Client 2 = a container on the
     compose network (arrives from a different address). Exhaust client 1's bucket; client 2 must still get 401.
@@ -197,6 +212,24 @@ def drill_ip_isolation():
     code2 = (r.stdout.strip() or r.stderr.strip()[-80:])
     EVIDENCE["ip-isolation"] = {"client1_codes": codes1, "client2_code_from_other_address": code2}
     return 429 in codes1 and code2 == "401"
+
+
+
+def drill_ip_limit():
+    reset_rate_limits()
+    try:
+        return _drill_ip_limit_body()
+    finally:
+        reset_rate_limits()
+
+
+
+def drill_ip_isolation():
+    reset_rate_limits()
+    try:
+        return _drill_ip_isolation_body()
+    finally:
+        reset_rate_limits()
 
 
 DRILLS = {"worker-kill": drill_worker_kill, "broker-outage": drill_broker_outage, "ip-limit": drill_ip_limit, "ip-isolation": drill_ip_isolation,
