@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -55,7 +55,7 @@ def update(db: Session, user: User, project_id: uuid.UUID, *, expected_version: 
             changed.append("title")  # field NAME only: no free text in the audit log
     before_state = {"archived": p.archived_at is not None}
     if archived is not None and archived != (p.archived_at is not None):
-        values["archived_at"] = datetime.now(timezone.utc) if archived else None
+        values["archived_at"] = datetime.now(UTC) if archived else None
         changed.append("archived")
     if not values:
         return p
@@ -63,7 +63,10 @@ def update(db: Session, user: User, project_id: uuid.UUID, *, expected_version: 
         db.rollback()
         raise Conflict("This project was changed elsewhere. Reload and try again.", code="version_conflict")
     after_state = {"archived": values["archived_at"] is not None} if "archived_at" in values else before_state
-    action = ("project.archived" if archived else "project.unarchived") if changed == ["archived"] else "project.updated"
+    if changed == ["archived"]:
+        action = "project.archived" if archived else "project.unarchived"
+    else:
+        action = "project.updated"
     audit_service.record(db, action=action, entity_type="project", entity_id=p.id, actor_id=user.id,
                          project_id=p.id, before=before_state, after={**after_state, "changed_fields": changed})
     db.commit()

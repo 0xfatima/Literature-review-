@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -10,7 +10,7 @@ from app.core import passwords
 from app.core.config import Settings
 from app.core.errors import Conflict, RateLimited, Unauthorized
 from app.core.rate_limit import RateLimiter
-from app.core.security import (email_fingerprint, hash_token, new_session_token, normalize_email, validate_password)
+from app.core.security import email_fingerprint, hash_token, new_session_token, normalize_email, validate_password
 from app.db.models import AuthSession, User
 from app.repositories import users as users_repo
 from app.services import audit_service
@@ -20,7 +20,7 @@ INVALID_CREDENTIALS = "Incorrect email or password."
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def register(db: Session, settings: Settings, limiter: RateLimiter, *, email: str, password: str,

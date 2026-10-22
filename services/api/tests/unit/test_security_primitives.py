@@ -1,7 +1,13 @@
 # stdlib-only
 from app.core.errors import ValidationFailed
-from app.core.security import (csrf_violation, email_fingerprint, hash_token, new_session_token, normalize_email,
-                               validate_password)
+from app.core.security import (
+    csrf_violation,
+    email_fingerprint,
+    hash_token,
+    new_session_token,
+    normalize_email,
+    validate_password,
+)
 from tests.helpers import raises
 
 ORIGINS = ["http://localhost:3000"]

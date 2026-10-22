@@ -4,7 +4,7 @@ import json
 import logging
 
 from app.core.context import reset_correlation_id, set_correlation_id
-from app.core.logging import JsonFormatter, REDACTED, redact, redact_text
+from app.core.logging import REDACTED, JsonFormatter, redact, redact_text
 
 
 def _emit(msg, **extra):

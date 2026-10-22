@@ -14,7 +14,7 @@ def find_unsafe_settings(values: Mapping[str, Any]) -> list[str]:
     if env in LOCAL_ENVS:
         return []
     problems: list[str] = []
-    secret = str(values.get("session_secret", ""))
+    secret = str(values.get("session_secret") or "")  # None / unset counts as missing
     if not secret or any(m.lower() in secret.lower() for m in PLACEHOLDER_MARKERS) or len(secret) < 32:
         problems.append("SESSION_SECRET must be a real random value of at least 32 characters")
     if not values.get("cookie_secure"):

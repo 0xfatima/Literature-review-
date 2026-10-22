@@ -1,11 +1,11 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, update
 
 from app.core.security import hash_token
 from app.db.models import AuthSession, User
-from tests.integration.conftest import CSRF, PASSWORD, new_email
+from tests.integration.conftest import PASSWORD, new_email
 
 
 def test_register_returns_no_secrets_and_hashes_with_argon2id(make_client, db):
@@ -77,7 +77,7 @@ def test_logout_revokes_the_session_server_side(user_client, make_client):
 def test_expired_session_is_rejected(user_client, db):
     c, _, uid = user_client()
     db.execute(update(AuthSession).where(AuthSession.user_id == uuid.UUID(uid))
-               .values(expires_at=datetime.now(timezone.utc) - timedelta(seconds=1)))
+               .values(expires_at=datetime.now(UTC) - timedelta(seconds=1)))
     db.commit()
     assert c.get("/api/v1/auth/me").status_code == 401
 

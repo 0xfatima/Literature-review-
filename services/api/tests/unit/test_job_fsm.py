@@ -1,10 +1,10 @@
 # stdlib-only
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.jobs import fsm
 from tests.helpers import raises
 
-NOW = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
 POLICY = fsm.RecoveryPolicy(timedelta(seconds=120), timedelta(seconds=60))
 
 
