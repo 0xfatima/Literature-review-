@@ -28,6 +28,10 @@ def find_unsafe_settings(values: Mapping[str, Any]) -> list[str]:
         problems.append("CORS_ALLOWED_ORIGINS must not contain a wildcard")
     if float(values.get("workflow_debug_node_delay_s") or 0) != 0:
         problems.append("WORKFLOW_DEBUG_NODE_DELAY_S is a test hook and must be 0 outside development/test")
+    if int(values.get("search_max_records_per_provider") or 0) > 10_000:
+        problems.append("SEARCH_MAX_RECORDS_PER_PROVIDER above 10000 is refused (provider fair-use limits)")
+    if values.get("llm_send_private_documents"):
+        problems.append("LLM_SEND_PRIVATE_DOCUMENTS must stay false until the consent gates are implemented")
     if env not in {"staging", "production"}:
         problems.append(f"APP_ENV '{env}' is not one of development|test|staging|production")
     return problems

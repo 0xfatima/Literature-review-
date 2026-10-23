@@ -34,3 +34,10 @@ No claim about any provider's data practices has been made by this project; this
 - The notice shown at consent time is versioned and stored by version.
 - `FakeLLM` (tests/offline) never needs consent. Live evals use public metadata only.
 - Phase 1 adds **no** LLM code, so no data leaves the system in this phase.
+
+## Phase 5 status
+- Implemented: `LLMGateway` with the data-class gate, `model_runs` (records `data_class` for every call: gate G4).
+- Phase 5 sends `public_metadata` only (relevance assessment of titles/abstracts + the approved protocol).
+- `private_document` is refused; G1-G3 (operator flag, reviewed terms record, per-project consent) remain to be built
+  before any document text is sent (extraction phases). The provider terms record above is still NOT REVIEWED.
+- Free-tier caveat shown in the UI: content sent on Google's free tier may be used to improve Google's products.

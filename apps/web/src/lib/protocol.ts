@@ -36,7 +36,7 @@ export function statusText(run: WorkflowRun): string {
       return "Waiting for your answer";
     case "idle":
       return run.stage === "SEARCH"
-        ? "Protocol approved. Searching is the next stage and is not available yet."
+        ? "Protocol approved. Run the scholarly search from the Search tab."
         : "Paused";
     case "failed":
       return run.error_summary ?? "This step failed.";

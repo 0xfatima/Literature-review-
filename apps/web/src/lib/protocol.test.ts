@@ -46,7 +46,7 @@ describe("protocol helpers", () => {
     expect(isBusy(null)).toBe(false);
   });
   it("is honest about what comes after approval", () => {
-    expect(statusText(run({ status: "idle", stage: "SEARCH" }))).toMatch(/not available yet/);
+    expect(statusText(run({ status: "idle", stage: "SEARCH" }))).toMatch(/Search tab/);
     expect(statusText(run({ status: "failed", error_summary: "Stopped" }))).toBe("Stopped");
   });
   it("describes impact without claiming results exist", () => {

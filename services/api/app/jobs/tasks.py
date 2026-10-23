@@ -96,3 +96,71 @@ def workflow_advance(job_id: str) -> str:
             return outcome
     finally:
         reset_correlation_id(token)
+
+
+@celery_app.task(name="search.run")
+def search_run(job_id: str) -> str:
+    """Run or resume one scholarly search. All logic is in app.services.search_executor."""
+    from app.services import search_executor, search_service
+
+    configure_logging(get_settings().log_level)
+    token = set_correlation_id(new_correlation_id())
+    try:
+        jid = uuid.UUID(job_id)
+        with get_sessionmaker()() as db:
+            if not repo.claim(db, jid):
+                db.rollback()
+                log.info("duplicate/late delivery ignored", extra={"job_id": job_id})
+                return "ignored"
+            db.commit()
+            job = repo.get_by_id(db, jid)
+            if job is None:
+                return "ignored"
+            try:
+                return search_executor.execute(db, job, get_settings()).status
+            except Exception as e:  # noqa: BLE001  any failure must end visibly; stored pages are kept
+                db.rollback()
+                log.exception("search job failed", extra={"job_id": job_id})
+                repo.finish(db, jid, fsm.RUNNING, fsm.FAILED, error=f"Search failed ({type(e).__name__}).")
+                db.commit()
+                from app.repositories import search as search_repo
+
+                run_id = (job.input or {}).get("search_run_id")
+                run = search_repo.get_run_by_id(db, uuid.UUID(str(run_id))) if run_id else None
+                if run is not None and search_service.reconcile(db, run):
+                    db.commit()
+                return "failed"
+    finally:
+        reset_correlation_id(token)
+
+
+@celery_app.task(name="relevance.assess")
+def relevance_assess(job_id: str) -> str:
+    """Lexical + optional AI relevance assessment. All logic is in app.services.relevance_service."""
+    from app.services import relevance_service
+
+    configure_logging(get_settings().log_level)
+    token = set_correlation_id(new_correlation_id())
+    try:
+        jid = uuid.UUID(job_id)
+        with get_sessionmaker()() as db:
+            if not repo.claim(db, jid):
+                db.rollback()
+                log.info("duplicate/late delivery ignored", extra={"job_id": job_id})
+                return "ignored"
+            db.commit()
+            job = repo.get_by_id(db, jid)
+            if job is None:
+                return "ignored"
+            try:
+                return relevance_service.execute(db, job, get_settings())
+            except Exception as e:  # noqa: BLE001  end visibly; assessments committed so far are kept
+                db.rollback()
+                log.exception("relevance job failed", extra={"job_id": job_id})
+                repo.finish(
+                    db, jid, fsm.RUNNING, fsm.FAILED, error=f"Relevance assessment failed ({type(e).__name__})."
+                )
+                db.commit()
+                return "failed"
+    finally:
+        reset_correlation_id(token)

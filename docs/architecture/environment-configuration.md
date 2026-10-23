@@ -17,6 +17,15 @@ Principles: 12-factor; all secrets/URLs/model names/timeouts/flags via environme
 | CORS | allowlist `http://localhost:3000` (but same-origin proxy is the default path) | n/a | same-origin ⇒ empty or exact allowlist |
 | Seeds | optional, labelled "Demo data", off by default | fixtures | never |
 
+> **Phase 5 note:** `LLM_*`, `RELEVANCE_JOB_BUDGET_S`, `RATE_LIMIT_RELEVANCE_PER_HOUR` and
+> `SCREENING_TA_REQUIRE_EXCLUSION_REASON` are now read. `LLM_PROVIDER=none` (default) disables all model calls. Put
+> `LLM_API_KEY` only in the backend/worker environment (local `.env` or a secret store), never in `.env.example`.
+
+> **Phase 4 note:** the scholarly search variables are now read (`SEARCH_*`, `SCHOLARLY_CONTACT_EMAIL`,
+> `OPENALEX_API_KEY`, `RATE_LIMIT_SEARCH_PER_HOUR`; see `.env.example`). Only the worker calls providers. Set
+> `SCHOLARLY_CONTACT_EMAIL` in every shared environment: OpenAlex and Crossref ask for it (polite pool). It and the
+> API key are added at request time and never stored with search records or shown in request URLs.
+
 > **Phase 1 note:** only the variables present and uncommented in `.env.example` are read by code today; `scripts/validate_static.py` checks `.env.example` ↔ `Settings` consistency. LLM, scholarly, storage, upload and email variables from the Phase-0 draft are reserved for later phases (email/SMTP removed until A8 is lifted).
 
 ## Variable groups
