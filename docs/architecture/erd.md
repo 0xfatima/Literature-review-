@@ -433,3 +433,37 @@ erDiagram
   answer is recorded at most once. Unlike `audit_events` it contains the user's answers and is deleted with the project.
 - `jobs.workflow_run_id` (cascade) links a `workflow.advance` job to its run.
 - Schema `lg_checkpoints`: LangGraph's own checkpoint tables (managed by the library, not by Alembic).
+
+### Phase 4 notes (implemented in migration `0004_scholarly_search`)
+
+- The sketch's single `search_runs` row per provider is split in two. `search_runs` is one user-started search
+  (tier, expression, the protocol version it was built from, the user's broaden decision, derived counts).
+  `search_queries` is the exact query sent to ONE provider within that run: endpoint, query text, parameters (no
+  secrets or contact details), filters applied, limitations, status, cursor, pages, reported total, retrieved and
+  skipped counts, error. The split lets one provider fail, be capped or be retried without touching the others.
+- `search_runs`: partial unique index `uq_search_runs_one_active` allows one queued/running search per project (merges
+  are serial by design). `protocol_version_id` is NO ACTION (approved versions are immutable). Status `completed` means
+  every query completed.
+- `paper_records`: the sketch's single `normalized_hash` is replaced by explicit identifier columns (`doi`, `pmid`,
+  `pmcid`, `arxiv_id`, `openalex_id`), each with a partial unique index per project, plus `title_key` and
+  `first_author_key` for title matching. `merged_into_id` became `possible_duplicate_of_id` + reason: uncertain matches
+  are flagged for a person, never merged. Access is split into `oa_status` (as reported), `access_status`
+  (`open_pdf_link` | `open_landing_page` | `metadata_only`) and `full_text_status` (what the application holds; always
+  `not_obtained` in this phase). `field_sources` records which provider supplied each field. `study_id` arrives with
+  screening.
+- `paper_source_records`: adds `search_query_id`, `rank`, `normalized` and `match_basis`; `raw_metadata` is `raw`.
+  Unique `(search_query_id, provider_record_id)` makes a resumed page idempotent.
+- `workflow_events.kind` gains `search` (started, retried, broaden decision, finished).
+
+### Phase 5 notes (implemented in migration `0005_relevance_screening`)
+
+- `model_runs`: one row per AI request (also failures): provider, model, prompt version, data class, settings, status,
+  error kind/summary, item count, tokens, duration, attempts, job. No prompt text and no key.
+- `relevance_assessments`: unique `(paper_id, protocol_version_id, method, method_version)`; `method` lexical | llm;
+  score 0-100, band, confidence, explanation; `eligibility_suggestion` allowed only for `llm` (CHECK). Re-running a
+  method version replaces its row; `model_run_id` links the call that produced it.
+- `screening_decisions`: append-only (trigger `screening_decisions_append_only`; project deletion still cascades).
+  decision include | exclude | uncertain | cleared (undo to "no decision"); reason only on exclude (CHECK); `action`
+  decide | bulk | undo; `batch_id`; `supersedes_id` (NO ACTION); `assessment_ids` shown at decision time.
+- `screening_states`: unique `(paper_id, stage)`, current decision pointer with `row_version`; rebuildable from the log.
+- Stage values: `title_abstract` only; full-text screening (Phase 7) adds a stage value.

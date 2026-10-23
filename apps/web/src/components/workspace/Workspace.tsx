@@ -6,6 +6,9 @@ import { ATTENTION, STAGES, stageIndex } from "@/lib/stages";
 import type { ConversationList, Job, Project } from "@/lib/types";
 import { useStatus } from "@/components/status/StatusContext";
 import ProtocolPanel from "@/components/protocol/ProtocolPanel";
+import SearchPanel from "@/components/search/SearchPanel";
+import PapersPanel from "@/components/papers/PapersPanel";
+import ScreeningPanel from "@/components/screening/ScreeningPanel";
 import { useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
 import { WORKFLOW_STAGES, statusText } from "@/lib/protocol";
 import type { WorkflowState } from "@/lib/types";
@@ -45,10 +48,12 @@ function WorkflowSection({
   projectId,
   canWrite,
   onOpenProtocol,
+  onOpenSearch,
 }: {
   projectId: string;
   canWrite: boolean;
   onOpenProtocol: () => void;
+  onOpenSearch?: () => void;
 }) {
   const wf = useWorkflow(projectId);
   const refresh = useRefreshReview(projectId);
@@ -85,9 +90,16 @@ function WorkflowSection({
       ) : (
         <p className="max-w-prose text-muted">The review protocol has not been started yet.</p>
       )}
-      <button type="button" className="btn-secondary mt-3" onClick={onOpenProtocol}>
-        {run ? "Open the protocol" : "Set up the protocol"}
-      </button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className="btn-secondary" onClick={onOpenProtocol}>
+          {run ? "Open the protocol" : "Set up the protocol"}
+        </button>
+        {run && run.status === "idle" && run.stage === "SEARCH" && onOpenSearch && (
+          <button type="button" className="btn" onClick={onOpenSearch}>
+            Go to search
+          </button>
+        )}
+      </div>
     </section>
   );
 }
@@ -95,6 +107,8 @@ function WorkflowSection({
 export const TABS = [
   { id: "status", label: "Review status" },
   { id: "protocol", label: "Protocol" },
+  { id: "search", label: "Search" },
+  { id: "screening", label: "Screening" },
   { id: "papers", label: "Papers" },
   { id: "tables", label: "Tables" },
   { id: "artifacts", label: "Artifacts" },
@@ -257,6 +271,7 @@ export default function Workspace({
               projectId={project.id}
               canWrite={project.archived_at === null}
               onOpenProtocol={() => onTab("protocol")}
+              onOpenSearch={() => onTab("search")}
             />
 
             <section aria-labelledby="sys-h">
@@ -285,12 +300,23 @@ export default function Workspace({
             onOpenConversation={onOpenConversation}
           />
         )}
-        {tab === "papers" && (
-          <Empty title="No papers yet">
-            Papers appear here once the approved protocol has been searched in scholarly databases. Every
-            record will show where it came from.
-          </Empty>
+        {tab === "search" && (
+          <SearchPanel
+            projectId={project.id}
+            canWrite={project.archived_at === null}
+            onOpenProtocol={() => onTab("protocol")}
+            onOpenPapers={() => onTab("papers")}
+            onOpenScreening={() => onTab("screening")}
+          />
         )}
+        {tab === "screening" && (
+          <ScreeningPanel
+            projectId={project.id}
+            canWrite={project.archived_at === null}
+            onOpenSearch={() => onTab("search")}
+          />
+        )}
+        {tab === "papers" && <PapersPanel projectId={project.id} onOpenSearch={() => onTab("search")} />}
         {tab === "tables" && (
           <Empty title="No tables yet">
             The evidence matrix and comparison tables are built from data extracted from included papers, each

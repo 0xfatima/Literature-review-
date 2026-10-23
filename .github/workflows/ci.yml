@@ -58,7 +58,7 @@ jobs:
           r = ET.parse("pytest.xml").getroot(); s = r if r.tag == "testsuite" else r.find("testsuite")
           t, sk = int(s.get("tests")), int(s.get("skipped"))
           print(f"tests={t} skipped={sk}")
-          assert sk == 0 and t >= 180, "tests were skipped or too few executed"
+          assert sk == 0 and t >= 320, "tests were skipped or too few executed"
           PY
       - uses: actions/upload-artifact@v4
         if: always()

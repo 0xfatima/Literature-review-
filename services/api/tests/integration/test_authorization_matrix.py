@@ -15,6 +15,7 @@ import re
 import pytest
 
 from .conftest import CSRF
+from .support import approved, run_search_jobs, start_search
 
 PUBLIC = {("POST", "/api/v1/auth/register"), ("POST", "/api/v1/auth/login")}
 # A body that satisfies every current request schema well enough to get PAST validation if authorization
@@ -45,17 +46,29 @@ def call(client, method, url):
 
 
 @pytest.fixture
-def world(user_client):
+def world(user_client, dispatcher):
+    """Two users; the first owns p1 with a chat, a job, an APPROVED protocol, a real search run (provider HTTP mocked)
+    and real papers, so every object route has a real object to probe."""
     a, _, _ = user_client()
     b, _, _ = user_client()
-    p1 = a.post("/api/v1/projects", json={"title": "A1", "topic": "private"}).json()["id"]
+    p1 = approved(a, dispatcher, title="A1")
     p2 = a.post("/api/v1/projects", json={"title": "A2", "topic": "private"}).json()["id"]
     c1 = a.post(f"/api/v1/projects/{p1}/conversations", json={}).json()["id"]
     a.post(f"/api/v1/projects/{p1}/conversations/{c1}/messages", json={"content": "private message"})
     job = a.post("/api/v1/jobs/ping", json={"project_id": p1, "delay_s": 41}).json()["id"]
-    assert a.post(f"/api/v1/projects/{p1}/workflow").status_code == 202  # Phase 3: workflow run + protocol draft
-    version = a.get(f"/api/v1/projects/{p1}/protocol").json()["draft"]["id"]
-    return a, b, {"project_id": p1, "conversation_id": c1, "job_id": job, "version_id": version}, p2
+    version = a.get(f"/api/v1/projects/{p1}/protocol").json()["approved"]["id"]
+    run = start_search(a, p1, providers=["openalex"])
+    assert run_search_jobs(dispatcher) == ["completed"]
+    paper = a.get(f"/api/v1/projects/{p1}/papers").json()["items"][0]["id"]
+    ids = {
+        "project_id": p1,
+        "conversation_id": c1,
+        "job_id": job,
+        "version_id": version,
+        "search_run_id": run["id"],
+        "paper_id": paper,
+    }
+    return a, b, ids, p2
 
 
 def test_route_inventory_is_not_vacuous(app):
@@ -106,7 +119,8 @@ def test_owner_can_read_every_object_route_used_above(app, world):
 def test_conversation_is_not_reachable_through_another_project_of_the_same_owner(app, world):
     a, _, ids, p2 = world
     for method, path in api_routes(app):
-        if "{conversation_id}" in path or "{version_id}" in path:
+        object_ids = ("conversation_id", "version_id") + (("search_run_id", "paper_id") if method == "GET" else ())
+        if any(f"{{{k}}}" in path for k in object_ids):
             r = call(a, method, fill(path, {**ids, "project_id": p2}))
             assert r.status_code == 404, f"{method} {path} via other project -> {r.status_code}"
 
@@ -116,3 +130,15 @@ def test_other_users_lists_never_include_foreign_objects(world):
     assert b.get("/api/v1/projects?include_archived=true").json()["total"] == 0
     assert b.get("/api/v1/jobs").json()["items"] == []
     assert CSRF  # lists are GETs; CSRF headers are present on every test client anyway
+
+
+def test_search_runs_and_papers_are_not_reachable_through_another_project_of_the_same_owner(world):
+    """With VALID bodies, so the 404 comes from the project-scoped lookup (an invalid body would stop at 422 first,
+    which reveals nothing about the object either)."""
+    a, _, ids, p2 = world
+    run, paper = ids["search_run_id"], ids["paper_id"]
+    assert a.post(f"/api/v1/projects/{p2}/search-runs/{run}/broaden", json={"decision": "yes"}).status_code == 404
+    assert a.post(f"/api/v1/projects/{p2}/search-runs/{run}/retry").status_code == 404
+    assert a.post(f"/api/v1/projects/{p2}/search-runs/{run}/cancel").status_code == 404
+    r = a.post(f"/api/v1/projects/{p2}/screening/papers/{paper}/decision", json={"decision": "include"})
+    assert r.status_code == 404

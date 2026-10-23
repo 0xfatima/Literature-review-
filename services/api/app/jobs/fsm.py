@@ -52,6 +52,11 @@ JOB_TYPES: dict[str, dict[str, Any]] = {
     # Moves the review workflow one human step forward. Not cancellable: a half-applied step is resolved by
     # resuming from the checkpoint, never by abandoning it mid-way.
     "workflow.advance": {"cancellable": False, "max_attempts": 3},
+    # Runs one scholarly search. Cancellable: the worker stops between pages; stored pages and the cursor stay,
+    # so a cancelled or interrupted search can be continued without duplicate records.
+    "search.run": {"cancellable": True, "max_attempts": 3},
+    # Lexical + optional AI relevance assessment. Cancellable between batches; results so far are kept.
+    "relevance.assess": {"cancellable": True, "max_attempts": 2},
 }
 
 

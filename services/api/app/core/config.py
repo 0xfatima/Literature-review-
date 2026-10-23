@@ -44,6 +44,37 @@ class Settings(BaseSettings):
     # TEST/DEV ONLY: sleep this long at the start of every graph node (worker-crash drill). Refused elsewhere.
     workflow_debug_node_delay_s: float = 0.0
 
+    # Scholarly search (Phase 4). Providers are called only from the worker. Contact e-mail and API key are sent to
+    # the providers that ask for them (OpenAlex/Crossref polite pools) and are never stored with search records.
+    search_providers_enabled: str = "openalex,europepmc,arxiv,crossref"
+    scholarly_contact_email: str | None = None
+    openalex_api_key: str | None = None
+    search_http_timeout_s: float = 20.0
+    search_max_retries: int = 3  # per request, after the first attempt (timeouts, 429, 5xx)
+    search_backoff_base_s: float = 1.0
+    search_max_backoff_s: float = 30.0
+    search_page_size: int = 100
+    search_max_records_per_provider: int = 500  # a query that reports more is marked "capped", never "complete"
+    search_job_budget_s: float = 780.0  # stop cleanly (resumable) before the worker's hard task time limit
+    rate_limit_search_per_hour: int = 30
+
+    # LLM (Phase 5). LLM_PROVIDER=none (default) disables every model call; nothing is sent anywhere.
+    # The key lives only in the backend/worker environment. It is never logged, stored or returned by the API.
+    llm_provider: str = "none"  # none | gemini
+    llm_api_key: str | None = None
+    llm_model: str | None = None  # no default on purpose: verify the model is available on your tier
+    llm_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    llm_timeout_s: float = 60.0
+    llm_min_interval_s: float = 4.5  # request spacing shared across workers (free tiers allow ~10-30 RPM)
+    llm_max_retries: int = 3
+    llm_send_private_documents: bool = False  # hard default; consent gates arrive with document extraction
+    llm_batch_size: int = 10  # papers per relevance request (fewer requests = less quota)
+    llm_max_papers_per_job: int = 300
+    relevance_job_budget_s: float = 780.0
+    rate_limit_relevance_per_hour: int = 20
+    # Screening (Phase 5). Title/abstract: an exclusion reason is encouraged; set true to require one.
+    screening_ta_require_exclusion_reason: bool = False
+
     session_cookie_name: str = "srs_session"
     session_ttl_hours: int = 168
     # No default on purpose. Reserved for signed values in later phases (sessions use random opaque tokens today).

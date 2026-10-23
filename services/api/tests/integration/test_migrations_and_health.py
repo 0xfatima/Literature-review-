@@ -4,7 +4,22 @@ from sqlalchemy import inspect, text
 from app.db.session import get_engine
 from tests.integration.conftest import alembic_cfg
 
-EXPECTED = {"users", "auth_sessions", "projects", "audit_events", "jobs"}
+EXPECTED = {
+    "users",
+    "auth_sessions",
+    "projects",
+    "audit_events",
+    "jobs",
+    # Phase 4 (0004) and Phase 5 (0005)
+    "search_runs",
+    "search_queries",
+    "paper_records",
+    "paper_source_records",
+    "model_runs",
+    "relevance_assessments",
+    "screening_decisions",
+    "screening_states",
+}
 
 
 def tables():
@@ -17,8 +32,14 @@ def test_upgrade_downgrade_upgrade_roundtrip():
     assert tables() == set()
     with get_engine().connect() as c:  # trigger function must be gone too
         assert c.scalar(text("SELECT count(*) FROM pg_proc WHERE proname='audit_events_block_mutation'")) == 0
+        assert c.scalar(text("SELECT count(*) FROM pg_proc WHERE proname='screening_decision_guard'")) == 0
     command.upgrade(alembic_cfg(), "head")
     assert EXPECTED <= tables()
+    # The downgrade dropped schema lg_checkpoints. This process may already have run LangGraph's checkpointer setup
+    # (it is cached per process); clear the cache so the next workflow step re-creates the checkpoint tables.
+    from app.workflows import runtime
+
+    runtime._setup_done = False
 
 
 def test_job_idempotency_indexes_are_partial_and_as_designed():

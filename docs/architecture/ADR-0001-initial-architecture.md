@@ -274,3 +274,78 @@ all new transitive pins resolved with `--uploaded-prior-to 2026-10-09` (>= 14 da
 `websockets<17`, so `websockets` moved 17.3 -> 16.1.1. Spike results that the design relies on (real Postgres): a
 resume value survives a crash mid-node; resuming a non-interrupted thread is a no-op; new input on a finished thread
 restarts at START. A7 status: **all six gate tests pass** (`tests/integration/test_langgraph_gate.py`).
+
+### Amendment A11 — Scholarly search (Phase 4, 2026-10-23)
+
+**A11.1 Search runs as a background job, not as a LangGraph node.** A graph node is replayed from the top on resume
+and after a worker crash; network calls in a node would be repeated, and a search can take minutes. The `search.run`
+job does the work with a per-page commit and a stored cursor, which gives the same crash-safety the checkpointer gives
+the protocol steps. The workflow stays at stage `SEARCH` and receives `search` events (started, retried, broaden
+decision, finished). Rejected: a search node with sub-interrupts (replays network I/O; a long node holds the
+checkpoint thread). To revisit when screening adds a stage gate that needs the graph.
+
+**A11.2 "Broaden discovery?" is persisted on the run, not as a graph interrupt.** `search_runs.broaden_decision`
+(`yes` | `no` | `later`) on the latest open-access-first run; the additional tier is refused by the API until it is
+`yes`. Each answer is a workflow event and an audit event. Same reason as A11.1, and the decision is changeable.
+
+**A11.3 Provider tiers.** Open-access-first: OpenAlex, Europe PMC (covers PubMed/MEDLINE, PMC, preprints), arXiv.
+Additional: Crossref (DOI registry, mostly metadata for subscription content). No separate PubMed E-utilities adapter:
+Europe PMC returns the same MEDLINE records with open-access flags. "PubMed", "MEDLINE" and "PMC" in a protocol's
+sources map to Europe PMC.
+
+**A11.4 One provider-neutral query language.** The user's (or protocol-derived) expression is parsed once and
+rendered per provider; each rendering lists what it could not express (Crossref: no Boolean; arXiv/OpenAlex: no
+truncation; language filters only where supported). Field tags are rejected rather than passed through, because the
+same expression is sent to several providers. Rejected: storing one free-text query per provider (not reproducible
+across providers; silently lossy).
+
+**A11.5 Conservative deduplication.** Identifiers (DOI, PMID, arXiv id, OpenAlex id) or same normalised title with a
+compatible first author and year, and no conflicting identifier. Everything else that shares a title is flagged
+`possible_duplicate_of` with a reason and never merged. A false merge loses a study silently; a missed duplicate is
+visible. Rejected: fuzzy title similarity (false merges on series papers and errata).
+
+**A11.6 Protocol fidelity.** A search records the approved protocol version it was built from. Providers selected
+beyond the protocol's listed sources are recorded as `added_beyond_protocol`; protocol sources without an adapter are
+listed as NOT searched. A run built from a superseded version is shown as such and cannot be continued (start a new
+search). The approved protocol is never changed by a search.
+
+**A11.7 Completeness is explicit.** A run is `completed` only if every provider query completed. `capped` (provider
+reported more than the per-provider limit), `partial` (failed after some pages), `failed`, `cancelled` and the time
+budget all leave the run `partial`/`failed`/`cancelled` with the reason shown. Counts are derived from stored records.
+
+**A11.8 Rate rules across workers.** Request spacing per provider uses a Redis `SET NX PX` key, so several workers
+share one budget (arXiv: one request per 3 s). If Redis is unavailable it degrades to per-process spacing and logs.
+
+### Amendment A12 — Relevance and screening (Phase 5, 2026-10-23)
+
+**A12.1 LLM provider: Gemini API, free tier, model set by configuration.** `LLM_PROVIDER=gemini`, `LLM_MODEL` (the
+example is `gemini-2.5-flash-lite`, the highest-volume free-tier model at the time of writing; model names change, so
+there is no code default). Behind `LLMProvider`/`LLMGateway`; nothing else knows the endpoint. `LLM_PROVIDER=none`
+(the default) disables every model call. The key is sent in the `x-goog-api-key` header, never in a URL.
+
+**A12.2 Only public metadata reaches the model, through the gateway.** Data class `public_metadata` (titles,
+abstracts, keywords, bibliographic fields, the approved protocol). `private_document` is refused unless
+`LLM_SEND_PRIVATE_DOCUMENTS=true`, which startup refuses outside development/test until the consent gates (A4) exist.
+The UI states what is sent and the free-tier data-use notice, and requires an acknowledgement before an AI run.
+
+**A12.3 Relevance and eligibility are separate records.** `relevance_assessments` (lexical `lexical-v1`, AI
+`relevance-v1`) only order and explain the queue. An AI eligibility suggestion is stored on the assessment, labelled as
+a suggestion, and never written as a decision. Deterministic validation: quotes must occur verbatim in the record;
+"exclude" without a verified violating quote is shown as "uncertain"; unknown records/criteria are dropped.
+Rejected: auto-excluding low-relevance records (spec: no unreviewed final AI decisions).
+
+**A12.4 Lexical first, always available.** Transparent word overlap with the approved questions and search concepts,
+explained per concept. Rejected for now: embeddings (another provider, quota and an opaque score for little gain at
+this scale).
+
+**A12.5 Decisions are append-only.** `screening_decisions` rows are never updated or deleted (DB trigger, like
+protocol immutability); revisions and undo append and `supersede`. `screening_states` is a derived pointer to the
+current decision with optimistic concurrency. Undo of a batch only touches records whose current decision is still the
+batch's decision. Each decision records the protocol version and the assessment ids that were on screen.
+
+**A12.6 Batching for quota.** `LLM_BATCH_SIZE` papers per request (default 10) and `LLM_MAX_PAPERS_PER_JOB` keep free
+-tier request counts low; requests are spaced across workers by the shared throttle; a quota/rate-limit or rejected
+key stops the AI part cleanly and is resumable. Each request is a `model_runs` row, success or failure.
+
+**A12.7 Workflow stage.** The first screening decision moves the workflow from SEARCH to RECORD_SCREENING (a `stage`
+event) and the project to `screening`. Searching remains possible afterwards.

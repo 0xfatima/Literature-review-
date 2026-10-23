@@ -14,14 +14,19 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.errors import Conflict, NotFound, ValidationFailed
-from app.db.models import Job, User, WorkflowRun
+from app.db.models import Job, SearchRun, User, WorkflowRun
 from app.jobs import fsm
 from app.repositories import jobs as repo
 from app.services import audit_service
 
 log = logging.getLogger(__name__)
 Dispatcher = Callable[[str, str], None]  # (task_name, job_id) -> None; raises on broker failure
-TASK_FOR_TYPE = {"system.ping": "system.ping", "workflow.advance": "workflow.advance"}
+TASK_FOR_TYPE = {
+    "system.ping": "system.ping",
+    "workflow.advance": "workflow.advance",
+    "search.run": "search.run",
+    "relevance.assess": "relevance.assess",
+}
 
 
 def _now() -> datetime:
@@ -128,6 +133,8 @@ def request_cancel(db: Session, user: User, job_id: uuid.UUID) -> Job:
         raise Conflict("This job type cannot be cancelled safely.", code="not_cancellable")
     if job.status == fsm.QUEUED:
         repo.finish(db, job.id, fsm.QUEUED, fsm.CANCELLED)
+        db.flush()
+        db.refresh(job)
     elif job.status == fsm.RUNNING:
         job.cancel_requested = True  # cooperative: the worker checks between steps
     else:
@@ -171,6 +178,19 @@ def sweep(db: Session, settings: Settings, dispatch: Dispatcher, now: datetime |
                         row_version=WorkflowRun.row_version + 1,
                     )
                 )
+            # A search whose job gave up must not look busy forever; stored pages stay and it can be continued.
+            db.execute(
+                update(SearchRun)
+                .where(SearchRun.job_id == job.id, SearchRun.status.in_(("queued", "running")))
+                .values(
+                    status="failed",
+                    stop_reason="worker_lost",
+                    error_summary="The background worker stopped repeatedly during this search. Records already "
+                    "retrieved are kept; continue the search to resume.",
+                    finished_at=now,
+                    row_version=SearchRun.row_version + 1,
+                )
+            )
         else:
             requeued += 1
         audit_service.record(

@@ -8,6 +8,8 @@ import { useStatus } from "./StatusContext";
 const JOB_LABELS: Record<string, string> = {
   "system.ping": "Worker check",
   "workflow.advance": "Review workflow step",
+  "search.run": "Scholarly search",
+  "relevance.assess": "Relevance assessment",
 };
 // Mirrors app/jobs/fsm.JOB_TYPES[...]["cancellable"]: the server refuses to cancel these.
 const NOT_CANCELLABLE = new Set(["workflow.advance"]);
