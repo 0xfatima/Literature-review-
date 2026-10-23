@@ -5,9 +5,96 @@ import { ApiError, apiFetch, json } from "@/lib/api";
 import { ATTENTION, STAGES, stageIndex } from "@/lib/stages";
 import type { ConversationList, Job, Project } from "@/lib/types";
 import { useStatus } from "@/components/status/StatusContext";
+import ProtocolPanel from "@/components/protocol/ProtocolPanel";
+import { useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
+import { WORKFLOW_STAGES, statusText } from "@/lib/protocol";
+import type { WorkflowState } from "@/lib/types";
+
+/** The review workflow's named stages, with the current one marked. Conceptual order, not a fixed sequence. */
+function WorkflowTrack({ state }: { state: WorkflowState }) {
+  const run = state.run;
+  const current = run ? WORKFLOW_STAGES.indexOf(run.stage as (typeof WORKFLOW_STAGES)[number]) : -1;
+  return (
+    <ol aria-label="Workflow stages" className="flex flex-wrap gap-y-2">
+      {state.stages.map((s, i) => {
+        const st = i < current ? "done" : i === current ? "current" : "todo";
+        return (
+          <li key={s.id} aria-current={st === "current" ? "step" : undefined} className="flex items-center">
+            <span
+              className={`rounded px-2 py-0.5 text-xs ${
+                st === "current"
+                  ? "bg-mark font-semibold text-canvas"
+                  : st === "done"
+                    ? "text-ink"
+                    : "text-muted"
+              }`}
+            >
+              {s.label}
+              {st === "done" && <span className="sr-only"> (done)</span>}
+              {st === "current" && <span className="sr-only"> (current stage)</span>}
+            </span>
+            {i < state.stages.length - 1 && <span aria-hidden className="mx-1 h-px w-4 bg-line" />}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function WorkflowSection({
+  projectId,
+  canWrite,
+  onOpenProtocol,
+}: {
+  projectId: string;
+  canWrite: boolean;
+  onOpenProtocol: () => void;
+}) {
+  const wf = useWorkflow(projectId);
+  const refresh = useRefreshReview(projectId);
+  const { reportError } = useStatus();
+  const recover = useMutation({
+    mutationFn: () => apiFetch<WorkflowState>(`/projects/${projectId}/workflow/recover`, { method: "POST" }),
+    onSettled: refresh,
+    onError: (e) => reportError(e instanceof ApiError ? e.message : "Could not restart the workflow."),
+  });
+  if (!wf.data) return <p className="text-muted">Loading the workflow…</p>;
+  const run = wf.data.run;
+  return (
+    <section aria-labelledby="wf-h">
+      <h2 id="wf-h" className="section-title mb-3">
+        Review workflow
+      </h2>
+      {run ? (
+        <>
+          <WorkflowTrack state={wf.data} />
+          <p className="mt-3 text-sm" data-testid="workflow-status">
+            {statusText(run)}
+          </p>
+          {(run.status === "failed" || run.status === "needs_attention") && (
+            <button
+              type="button"
+              className="btn-secondary mt-2"
+              disabled={!canWrite || recover.isPending}
+              onClick={() => recover.mutate()}
+            >
+              Restart the workflow from the saved protocol
+            </button>
+          )}
+        </>
+      ) : (
+        <p className="max-w-prose text-muted">The review protocol has not been started yet.</p>
+      )}
+      <button type="button" className="btn-secondary mt-3" onClick={onOpenProtocol}>
+        {run ? "Open the protocol" : "Set up the protocol"}
+      </button>
+    </section>
+  );
+}
 
 export const TABS = [
   { id: "status", label: "Review status" },
+  { id: "protocol", label: "Protocol" },
   { id: "papers", label: "Papers" },
   { id: "tables", label: "Tables" },
   { id: "artifacts", label: "Artifacts" },
@@ -67,11 +154,13 @@ export default function Workspace({
   conversations,
   tab,
   onTab,
+  onOpenConversation,
 }: {
   project: Project;
   conversations: ConversationList | undefined;
   tab: TabId;
   onTab: (t: TabId) => void;
+  onOpenConversation: (conversationId: string) => void;
 }) {
   const qc = useQueryClient();
   const { reportError } = useStatus();
@@ -164,15 +253,11 @@ export default function Workspace({
               </dl>
             </section>
 
-            <section aria-labelledby="next-h" className="border-t border-line pt-5">
-              <h2 id="next-h" className="mb-1 font-semibold">
-                Next step
-              </h2>
-              <p className="max-w-prose text-muted">
-                Defining the review protocol (questions, eligibility criteria and sources) is the next stage
-                to be built. Until then, use chat threads to capture your thinking about scope and criteria.
-              </p>
-            </section>
+            <WorkflowSection
+              projectId={project.id}
+              canWrite={project.archived_at === null}
+              onOpenProtocol={() => onTab("protocol")}
+            />
 
             <section aria-labelledby="sys-h">
               <h2 id="sys-h" className="section-title mb-2">
@@ -192,6 +277,13 @@ export default function Workspace({
               </button>
             </section>
           </div>
+        )}
+        {tab === "protocol" && (
+          <ProtocolPanel
+            projectId={project.id}
+            canWrite={project.archived_at === null}
+            onOpenConversation={onOpenConversation}
+          />
         )}
         {tab === "papers" && (
           <Empty title="No papers yet">

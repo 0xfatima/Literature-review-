@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     job_sweep_interval_s: float = 60.0
     worker_health_timeout_s: float = 1.5
 
+    # Review workflow. max_iterations bounds the human question loop on one checkpoint thread (spec §5.2).
+    workflow_max_iterations: int = 60
+    # TEST/DEV ONLY: sleep this long at the start of every graph node (worker-crash drill). Refused elsewhere.
+    workflow_debug_node_delay_s: float = 0.0
+
     session_cookie_name: str = "srs_session"
     session_ttl_hours: int = 168
     # No default on purpose. Reserved for signed values in later phases (sessions use random opaque tokens today).

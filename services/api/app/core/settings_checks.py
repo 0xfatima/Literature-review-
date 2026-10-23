@@ -26,6 +26,8 @@ def find_unsafe_settings(values: Mapping[str, Any]) -> list[str]:
     origins = str(values.get("cors_allowed_origins", ""))
     if "*" in origins:
         problems.append("CORS_ALLOWED_ORIGINS must not contain a wildcard")
+    if float(values.get("workflow_debug_node_delay_s") or 0) != 0:
+        problems.append("WORKFLOW_DEBUG_NODE_DELAY_S is a test hook and must be 0 outside development/test")
     if env not in {"staging", "production"}:
         problems.append(f"APP_ENV '{env}' is not one of development|test|staging|production")
     return problems

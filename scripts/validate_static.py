@@ -78,7 +78,8 @@ cfg = trees[API / "app/core/config.py"]
 fields = {n.target.id.upper() for c in cfg.body if isinstance(c, ast.ClassDef) and c.name == "Settings"
           for n in c.body if isinstance(n, ast.AnnAssign)}
 env_keys = set(re.findall(r"^([A-Z][A-Z0-9_]+)=", (ROOT / ".env.example").read_text(), re.M))
-allowed_extra = {"POSTGRES_PASSWORD", "NEXT_PUBLIC_APP_NAME", "NEXT_PUBLIC_SESSION_COOKIE_NAME"}
+allowed_extra = {"POSTGRES_PASSWORD", "NEXT_PUBLIC_APP_NAME", "NEXT_PUBLIC_SESSION_COOKIE_NAME",
+                 "LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2"}  # read by langchain-core, not by Settings
 check("every Settings field is documented in .env.example", fields <= env_keys, ", ".join(sorted(fields - env_keys)))
 check("every .env.example key is a Settings field or known extra", env_keys <= fields | allowed_extra,
       ", ".join(sorted(env_keys - fields - allowed_extra)))

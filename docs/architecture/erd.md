@@ -409,3 +409,27 @@ erDiagram
 - `messages.payload` (named `structured_payload` in the Phase 0 sketch) is reserved for approval cards and citations.
 - `created_by` / `author_id` are `ON DELETE SET NULL`; deleting a conversation cascades to its messages, and
   deleting a project cascades to its conversations.
+
+
+### Phase 3 notes (implemented in migration `0003_protocol_workflow`)
+
+- `protocol_versions`: one row per version; partial unique indexes allow **one draft and one approved** version per
+  project. Columns beyond the Phase 0 sketch: `framework_source`, `framework_rationale` (the advisor's explanation as
+  shown), the scope fields (`date_from`, `date_to`, `languages`, `study_designs`, `sources`), plans, `content_hash`
+  (SHA-256 of the canonical approved content), `impact` (diff and affected stages vs the previous approval), and
+  `superseded_at`. `filters_and_sources` and `extraction_schema_id` from the sketch are replaced by these explicit
+  columns; the extraction schema link arrives with Phase 7.
+- Triggers `protocol_versions_immutable`, `protocol_questions_immutable`, `protocol_criteria_immutable`: an approved or
+  superseded version can only go approved -> superseded; its questions and criteria cannot be inserted, changed or
+  deleted. Deleting the project still cascades (the guards stand aside once the project row is gone).
+  `supersedes_id`, `created_by`, `approved_by` use NO ACTION rather than SET NULL, because SET NULL would be an UPDATE
+  of an immutable row.
+- `protocol_questions` / `protocol_criteria` carry a `stable_key` kept across versions (diffs are per item);
+  criteria add `origin` (`user` | `suggested`) and `state` (`proposed` | `accepted` | `rejected`).
+- `workflow_runs`: **one per project** (unique `project_id`); `thread_id` is the LangGraph thread (a recovery starts a
+  new one, so it is separate from `id`); `pending_question` is required exactly when `status = 'awaiting_input'`
+  (CHECK). `stage_before_revision` remembers where to return after a revision.
+- `workflow_events`: append-only log of the run; `(run_id, kind, question_id)` unique where `question_id` is set, so an
+  answer is recorded at most once. Unlike `audit_events` it contains the user's answers and is deleted with the project.
+- `jobs.workflow_run_id` (cascade) links a `workflow.advance` job to its run.
+- Schema `lg_checkpoints`: LangGraph's own checkpoint tables (managed by the library, not by Alembic).

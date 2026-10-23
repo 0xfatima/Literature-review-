@@ -234,3 +234,43 @@ per-IP limits and keeping only per-account limits: leaves credential-stuffing ac
 **Production.** Use the platform load balancer or this proxy as the single ingress; set `TRUSTED_PROXY_HOPS` to the
 real number of header-setting hops; never expose the API port directly, because a direct caller can forge the header.
 Guarded by `tests/unit/test_edge_proxy_config.py` and the two drills.
+
+
+### Amendment A10 — Review workflow and protocol (Phase 3, 2026-10-23)
+
+**A10.1 Human answers are applied by the API, not by graph nodes.** `POST /projects/{id}/workflow/resume` validates
+the answer, applies it through `protocol_service`, records it once in `workflow_events`, writes the chat message and
+queues `workflow.advance`, in one transaction. The graph is then resumed with a compact *routing* payload. Nodes build
+a deterministic question, call `interrupt()` and route; they write nothing. *Why:* LangGraph re-runs an interrupted
+node from the top on resume and a worker can die anywhere, so any write in a node can happen twice; invalid answers are
+rejected with a 422 before anything moves (A7.4). *Rejected:* applying answers inside nodes with idempotency keys
+(works, but every node then needs its own replay analysis, and validation errors surface only asynchronously).
+
+**A10.2 Deterministic question ids** = uuid5(thread, step, node). The worker writes the chat message for a question
+with that id as `client_message_id`, so a replay cannot duplicate it.
+
+**A10.3 Tables win, concretely.** Before advancing, the worker compares the checkpoint's `protocol_version_id` with
+the run row (for a revision: with the version being revised). A mismatch marks the run and project `needs_attention`
+and does not touch the graph. *Recover* starts a **new** checkpoint thread whose position is derived from the tables
+(draft exists -> review; only approved -> idle at its stage); old checkpoints are kept, not deleted.
+
+**A10.4 Spec route names.** The spec lists `/workflow-runs/{id}/resume` and `/projects/{id}/protocol/approve`.
+Implemented as project-scoped routes (`/projects/{id}/workflow/...`) so every call passes the single
+`get_owned_project` choke point; approval is the `approve` answer to the review question (one path, recorded with the
+workflow). Route names may evolve per spec §9.
+
+**A10.5 No LLM in Phase 3.** The framework advisor is a transparent keyword rule (`KeywordFrameworkAdvisor`, labelled
+"not an AI judgement" in the UI) behind a `FrameworkAdvisor` protocol; criteria/question suggestions only restate the
+user's own answers and start as *proposed*. The LLM gateway (A4 consent gates, model_runs) is deferred to the first
+phase whose feature needs a model. *Rejected:* building the gateway now with no caller (untestable end to end, and a
+fake "assistant" would contradict rule 11).
+
+**A10.6 One workflow run per project**, `max_iterations` copied onto the run, debug node delay as a settings-guarded
+test hook. Checkpointer: `PostgresSaver` on its own autocommit psycopg connection with `search_path=lg_checkpoints`;
+`setup()` once per process under a Postgres advisory lock.
+
+**A10.7 Versions pinned.** `langgraph==1.2.14`, `langgraph-checkpoint==4.2.0`, `langgraph-checkpoint-postgres==3.1.2`;
+all new transitive pins resolved with `--uploaded-prior-to 2026-10-09` (>= 14 days old). `langgraph-sdk` requires
+`websockets<17`, so `websockets` moved 17.3 -> 16.1.1. Spike results that the design relies on (real Postgres): a
+resume value survives a crash mid-node; resuming a non-interrupted thread is a no-op; new input on a finished thread
+restarts at START. A7 status: **all six gate tests pass** (`tests/integration/test_langgraph_gate.py`).

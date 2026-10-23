@@ -45,3 +45,17 @@ def test_no_secret_named_setting_has_a_hardcoded_string_default():
 
     cfg = (pathlib.Path(__file__).resolve().parents[2] / "app" / "core" / "config.py").read_text()
     assert not re.search(r"(?im)^\s*\w*(secret|password|token)\w*\s*:\s*str(\s*\|\s*None)?\s*=\s*[\"']", cfg)
+
+
+def test_workflow_debug_delay_is_refused_outside_local_envs():
+    base = {
+        "app_env": "production",
+        "session_secret": "x" * 40,
+        "cookie_secure": True,
+        "database_url": "postgresql://u:real@h/db",
+        "cors_allowed_origins": "https://app.example",
+    }
+    assert find_unsafe_settings(base) == []
+    problems = find_unsafe_settings({**base, "workflow_debug_node_delay_s": 5})
+    assert any("WORKFLOW_DEBUG_NODE_DELAY_S" in p for p in problems)
+    assert find_unsafe_settings({**base, "app_env": "test", "workflow_debug_node_delay_s": 5}) == []

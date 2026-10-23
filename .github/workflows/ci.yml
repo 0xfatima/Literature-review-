@@ -58,7 +58,7 @@ jobs:
           r = ET.parse("pytest.xml").getroot(); s = r if r.tag == "testsuite" else r.find("testsuite")
           t, sk = int(s.get("tests")), int(s.get("skipped"))
           print(f"tests={t} skipped={sk}")
-          assert sk == 0 and t >= 54, "tests were skipped or too few executed"
+          assert sk == 0 and t >= 180, "tests were skipped or too few executed"
           PY
       - uses: actions/upload-artifact@v4
         if: always()
@@ -113,7 +113,7 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
           E2E_BASE_URL=http://localhost:3000 PLAYWRIGHT_JSON_OUTPUT_NAME=pw.json npx playwright test --reporter=json,list
-          node -e "const s=require('./pw.json').stats; console.log(s); if(s.unexpected||s.skipped||s.flaky||s.expected<13) process.exit(1)"
+          node -e "const s=require('./pw.json').stats; console.log(s); if(s.unexpected||s.skipped||s.flaky||s.expected<14) process.exit(1)"
       - name: Live drills (ownership, CSRF, audit immutability, session revocation, IP limit, broker outage, worker SIGKILL, restart persistence)
         run: |
           sleep 65
