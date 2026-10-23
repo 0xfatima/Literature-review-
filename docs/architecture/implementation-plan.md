@@ -35,6 +35,12 @@ Provisional mapping of your phases to spec milestones (M0–M8). When you issue 
 ## Standing definition of "phase complete"
 Relevant tests *executed* with outcomes recorded (not "app starts"); lint/type checks run; migrations apply on a clean DB; `.env.example` and docs updated; known gaps listed; no mock data without a "Demo data" label.
 
+> **Phase 3 (2026-10-23): research protocol and review state machine — done, see `docs/implementation-reports/phase-3.md`.**
+> Delivered the ADR A7 LangGraph gate (six tests, real worker process), protocol versions/questions/criteria, the
+> protocol conversation, approval, revisions with impact. The `LLMGateway` + Gemini skeleton listed under spec
+> milestone M1 was **not** built: no Phase 3 step needs a model, and the rule-based advisor sits behind an interface
+> an LLM-backed one can replace. It moves to the first phase that needs a model (relevance ranking).
+
 ## Deferred items register
 | Item | Deferred to | Reason |
 |---|---|---|
@@ -43,3 +49,5 @@ Relevant tests *executed* with outcomes recorded (not "app starts"); lint/type c
 | Redis rate-limiter test, timing-equivalence measurement | Phase 2 | needs Redis / benchmark environment |
 | Account deletion, data export | Phase 9 | not in MVP slice |
 | Lockfiles | first networked install | no network when authored |
+| LLM gateway, consent gates, FakeLLM, model_runs | first phase whose feature needs a model | nothing in Phase 3 calls a model (ADR A10) |
+| Discarding a started protocol revision | Phase 4 | approving it unchanged is the workaround |

@@ -3,7 +3,7 @@
 Human-in-the-loop systematic-review workbench (protocol → search → screening → PDFs → evidence extraction → synthesis → draft) with provenance and an audit trail.
 Source of truth: `docs/requirements/`. Architecture: `docs/architecture/ADR-0001-initial-architecture.md` (Accepted, with amendments A1–A8).
 
-**Status: Phase 2 (accounts, projects, persistent chat) complete pending CI.** Registration/login, projects (create, rename, archive, delete), project-scoped chat threads with persistent history, the dark IDE workspace (resizable panels, live job status), ownership enforced on every route, background jobs, health checks, Docker Compose, CI.
+**Status: Phase 3 (research protocol and review workflow) complete pending CI.** On top of Phase 2 (accounts, projects, persistent chat, IDE workspace): a protocol-setup conversation driven by a LangGraph workflow with database checkpoints (objective, PICO/PECO/SPIDER/custom framework with a rule-based suggestion, framework elements, review questions, scope, inclusion/exclusion criteria, approval), an editable Protocol tab, immutable approved versions, revisions with a required reason and a downstream-impact report, and recovery after restarts or worker crashes. See `docs/implementation-reports/phase-3.md`.
 The research assistant is **not connected yet**: chat stores your messages and says so; it never invents replies. Exact test results: `docs/implementation-reports/phase-2.md`.
 
 ## Quick start (Docker Compose)
@@ -47,9 +47,10 @@ Lockfiles are committed (`requirements.lock.txt`, `apps/web/package-lock.json`).
 | Command | What it runs | Needs |
 |---|---|---|
 | `scripts/check.sh` | ruff, ruff format, mypy, pytest unit, web lint/prettier/typecheck/vitest | `pip install -c requirements.lock.txt -e ".[dev]"`, `npm ci` in `apps/web` |
-| `python scripts/run_stdlib_tests.py` | the 39 tests marked `# stdlib-only` (no packages) | Python only |
+| `python scripts/run_stdlib_tests.py` | the 71 tests marked `# stdlib-only` (no packages) | Python only |
 | `python scripts/validate_static.py` | syntax / import / config-consistency checks | Python (+ `tsc` optional) |
 | `scripts/test-integration.sh` | DB-backed API, ownership, audit, jobs, migration tests | real PostgreSQL (`TEST_DATABASE_URL`; **drops schema `public`**, so the fixture refuses any database whose name does not contain `test`) |
+| `pytest services/api/tests/integration/test_langgraph_gate.py` | ADR A7 gate: starts **real Celery worker processes** (Redis DB 9), restarts and SIGKILLs them | PostgreSQL + Redis, `celery` on PATH (installed with the package) |
 | `scripts/test-e2e.sh` | Playwright browser tests against the compose stack | Docker, Node, Chromium download |
 
 Integration tests **skip** (visibly) without `TEST_DATABASE_URL`; a skip is not a pass. CI (`.github/workflows/ci.yml`) runs all of the above on every pull request.
@@ -63,6 +64,12 @@ docker compose run --rm api python -m app.cli set-password user@example.com   # 
 ## Repository layout
 `apps/web` Next.js UI · `services/api/app` FastAPI + services + SQLAlchemy + Celery tasks (`jobs/`) · `services/api/app/db/migrations` Alembic · `infra/docker` Dockerfiles · `docs/` requirements, architecture, runbooks, per-phase reports · `scripts/` dev/CI helpers.
 Celery tasks live in `app/jobs/` (one package for API and worker) rather than `services/worker/tasks/` as sketched in the spec; the worker is a separate *process* from the same code.
+
+## Review protocol (Phase 3)
+Open a project, choose the **Protocol** tab and **Start protocol setup**. Questions appear as cards in the *Protocol setup* chat thread; every answer is saved immediately, so you can sign out and continue at the same step later. The same draft can be edited field by field on the Protocol tab. Approval records approver, time and a SHA-256 of the exact content; an approved version can never be edited (database triggers enforce this). **Start a revision** (a reason is required) creates the next version; approving it shows which stages may need rerunning. The questions come from a fixed workflow: **no AI model is used yet**, and the framework suggestion is a transparent keyword rule. After approval the workflow waits at *Search*, which is the next phase.
+
+## Known limitations (Phase 3)
+See `docs/implementation-reports/phase-3.md` §Known limitations. In short: no LLM assistance yet (rule-based suggestions only); search is not implemented, so "rerun" impact cannot yet point at real results; a started revision cannot be discarded (approve it unchanged to return).
 
 ## Known limitations (Phase 2)
 No email verification, MFA or password-reset email · registration reveals whether an email is registered · account deletion not implemented · no OpenAPI→TypeScript client generation yet (API types are hand-written) · no research features yet (protocol, search, screening, PDFs…) · the chat has no assistant yet (messages are stored, no replies) · Papers/Tables/Artifacts tabs and Files show empty states until their phases.

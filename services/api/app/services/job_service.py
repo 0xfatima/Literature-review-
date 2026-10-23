@@ -8,19 +8,20 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.errors import Conflict, NotFound, ValidationFailed
-from app.db.models import Job, User
+from app.db.models import Job, User, WorkflowRun
 from app.jobs import fsm
 from app.repositories import jobs as repo
 from app.services import audit_service
 
 log = logging.getLogger(__name__)
 Dispatcher = Callable[[str, str], None]  # (task_name, job_id) -> None; raises on broker failure
-TASK_FOR_TYPE = {"system.ping": "system.ping"}
+TASK_FOR_TYPE = {"system.ping": "system.ping", "workflow.advance": "workflow.advance"}
 
 
 def _now() -> datetime:
@@ -38,6 +39,7 @@ def enqueue(
     payload: dict[str, Any],
     request_key: str | None,
     rerun_of: uuid.UUID | None = None,
+    workflow_run_id: uuid.UUID | None = None,
 ) -> tuple[Job, bool]:
     """Returns (job, created). created=False means an Idempotency-Key replay returned the existing job."""
     spec = fsm.JOB_TYPES.get(job_type)
@@ -65,6 +67,7 @@ def enqueue(
         request_key=request_key,
         max_attempts=spec["max_attempts"],
         rerun_of_job_id=rerun_of,
+        workflow_run_id=workflow_run_id,
     )
     try:
         with db.begin_nested():  # savepoint so a unique violation does not poison the outer transaction
@@ -156,6 +159,18 @@ def sweep(db: Session, settings: Settings, dispatch: Dispatcher, now: datetime |
         if outcome == fsm.FAILED:
             job.finished_at, job.error_summary = now, "Worker lost; retry attempts exhausted."
             failed += 1
+            if job.workflow_run_id is not None:  # the workflow must not look busy forever
+                db.execute(
+                    update(WorkflowRun)
+                    .where(WorkflowRun.id == job.workflow_run_id, WorkflowRun.status.in_(("queued", "running")))
+                    .values(
+                        status="failed",
+                        stop_reason="worker_lost",
+                        error_summary="The background worker stopped repeatedly during this step. Restart the "
+                        "workflow to continue from the saved protocol.",
+                        row_version=WorkflowRun.row_version + 1,
+                    )
+                )
         else:
             requeued += 1
         audit_service.record(

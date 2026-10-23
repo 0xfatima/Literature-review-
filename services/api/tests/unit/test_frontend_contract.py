@@ -24,3 +24,22 @@ def test_frontend_message_roles_match_backend():
     m = re.search(r"role: ((?:\"[a-z]+\"(?: \| )?)+);", src)
     assert m, "Message.role union not found in types.ts"
     assert sorted(re.findall(r'"([a-z]+)"', m.group(1))) == sorted(MESSAGE_ROLES)
+
+
+def test_frontend_workflow_stages_match_backend():
+    from app.protocol.stages import STAGES
+
+    src = (WEB / "protocol.ts").read_text()
+    block = src.split("export const WORKFLOW_STAGES = [")[1].split("]")[0]
+    assert re.findall(r'"([A-Z_]+)"', block) == list(STAGES)
+
+
+def test_frontend_frameworks_match_backend():
+    from app.protocol.frameworks import FRAMEWORKS
+
+    src = (WEB / "protocol.ts").read_text().split("export const FRAMEWORKS")[1].split("export function")[0]
+    keys = re.findall(r'^(?:\s{2}\{ key|\s{4}key): "([a-z_]+)"', src, re.M)
+    assert keys == list(FRAMEWORKS)
+    for fw in FRAMEWORKS.values():
+        for e in fw.elements:
+            assert f'{{ key: "{e.key}", label: "{e.label}" }}' in src, (fw.key, e.key)

@@ -49,6 +49,9 @@ TRANSITIONS: dict[str, frozenset[str]] = {
 # Registry of job types. Only safe-to-cancel types may be cancelled (spec: "cancellation where safe").
 JOB_TYPES: dict[str, dict[str, Any]] = {
     "system.ping": {"cancellable": True, "max_attempts": 3},
+    # Moves the review workflow one human step forward. Not cancellable: a half-applied step is resolved by
+    # resuming from the checkpoint, never by abandoning it mid-way.
+    "workflow.advance": {"cancellable": False, "max_attempts": 3},
 }
 
 

@@ -5,7 +5,12 @@ import { stageLabel } from "@/lib/stages";
 import type { Job, JobList, Project } from "@/lib/types";
 import { useStatus } from "./StatusContext";
 
-const JOB_LABELS: Record<string, string> = { "system.ping": "Worker check" };
+const JOB_LABELS: Record<string, string> = {
+  "system.ping": "Worker check",
+  "workflow.advance": "Review workflow step",
+};
+// Mirrors app/jobs/fsm.JOB_TYPES[...]["cancellable"]: the server refuses to cancel these.
+const NOT_CANCELLABLE = new Set(["workflow.advance"]);
 const jobLabel = (j: Job) => JOB_LABELS[j.type] ?? j.type;
 
 /** Bottom bar: workflow stage, live background jobs (real data from /jobs), save state and errors. */
@@ -47,7 +52,7 @@ export default function StatusBar({ project }: { project: Project }) {
               value={j.progress}
               aria-label={`${jobLabel(j)} progress`}
             />
-            {!j.cancel_requested && (
+            {!j.cancel_requested && !NOT_CANCELLABLE.has(j.type) && (
               <button type="button" className="text-link hover:underline" onClick={() => cancel.mutate(j)}>
                 Cancel
               </button>

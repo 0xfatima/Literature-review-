@@ -47,6 +47,7 @@ def migrated_db():
     if "test" not in db_name.lower():
         pytest.exit(f"Refusing to wipe database {db_name!r}: TEST_DATABASE_URL must name a database containing 'test'")
     with get_engine().begin() as c:
+        c.execute(text("DROP SCHEMA IF EXISTS lg_checkpoints CASCADE"))  # LangGraph checkpoints (Phase 3)
         c.execute(text("DROP SCHEMA public CASCADE"))
         c.execute(text("CREATE SCHEMA public"))
     command.upgrade(alembic_cfg(), "head")
@@ -113,3 +114,18 @@ def user_client(make_client):
         return c, email, uid
 
     return _make
+
+
+def drain(dispatcher, *, limit: int = 50) -> list[str]:
+    """Run every workflow job the API has dispatched so far, in order, IN THIS PROCESS (real task body, real
+    LangGraph, real Postgres checkpointer; only the broker hop is skipped). Returns the task outcomes."""
+    from app.jobs import tasks
+
+    outcomes = []
+    for _ in range(limit):
+        pending = [jid for task, jid in dispatcher.sent if task == "workflow.advance"]
+        if not pending:
+            return outcomes
+        dispatcher.sent = [s for s in dispatcher.sent if s[0] != "workflow.advance"]
+        outcomes += [tasks.workflow_advance(jid) for jid in pending]
+    raise AssertionError("workflow kept dispatching jobs: possible loop")

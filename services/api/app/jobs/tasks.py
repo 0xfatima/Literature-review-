@@ -13,7 +13,7 @@ from app.db.session import get_sessionmaker
 from app.jobs import fsm
 from app.jobs.celery_app import celery_app, send_task
 from app.repositories import jobs as repo
-from app.services import job_service
+from app.services import job_service, workflow_service
 
 log = logging.getLogger(__name__)
 MAX_PING_SLEEP_S = 60
@@ -59,3 +59,40 @@ def sweep_jobs() -> dict[str, int]:
     configure_logging(get_settings().log_level)
     with get_sessionmaker()() as db:
         return job_service.sweep(db, get_settings(), send_task)
+
+
+@celery_app.task(name="workflow.advance")
+def workflow_advance(job_id: str) -> str:
+    """Advance the review workflow by one human step. All logic is in app.workflows.runtime/workflow_service."""
+    from app.workflows import runtime  # imported lazily: the API process never needs LangGraph's checkpointer
+
+    configure_logging(get_settings().log_level)
+    token = set_correlation_id(new_correlation_id())
+    try:
+        jid = uuid.UUID(job_id)
+        with get_sessionmaker()() as db:
+            if not repo.claim(db, jid):
+                db.rollback()
+                log.info("duplicate/late delivery ignored", extra={"job_id": job_id})
+                return "ignored"
+            db.commit()
+            job = repo.get_by_id(db, jid)
+            if job is None:
+                return "ignored"
+            run_id = job.workflow_run_id
+            try:
+                outcome = runtime.advance(db, job)
+            except Exception as e:  # noqa: BLE001  any failure must end visibly, never leave the run "running"
+                db.rollback()
+                log.exception("workflow step failed", extra={"job_id": job_id})
+                summary = f"The workflow step failed ({type(e).__name__}). Restart the workflow to continue."
+                if run_id is not None:
+                    workflow_service.fail(db, run_id, summary)
+                repo.finish(db, jid, fsm.RUNNING, fsm.FAILED, error=type(e).__name__)
+                db.commit()
+                return "failed"
+            repo.finish(db, jid, fsm.RUNNING, fsm.SUCCEEDED, result={"outcome": outcome})
+            db.commit()
+            return outcome
+    finally:
+        reset_correlation_id(token)

@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import re
 import uuid
+from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -85,7 +86,7 @@ def get(db: Session, project: Project, conversation_id: uuid.UUID) -> Conversati
 # ---------- threads ----------
 
 
-def create(db: Session, user: User, project: Project, *, title: str | None) -> Conversation:
+def create(db: Session, user: User, project: Project, *, title: str | None, commit: bool = True) -> Conversation:
     _require_writable(project)
     conv = Conversation(
         project_id=project.id,
@@ -103,8 +104,9 @@ def create(db: Session, user: User, project: Project, *, title: str | None) -> C
         project_id=project.id,
         after={"title_source": conv.title_source},
     )
-    db.commit()
-    db.refresh(conv)
+    if commit:
+        db.commit()
+        db.refresh(conv)
     return conv
 
 
@@ -225,3 +227,41 @@ def post_user_message(
         raise
     db.refresh(msg)
     return msg, True
+
+
+def append_workflow_message(
+    db: Session,
+    conversation_id: uuid.UUID,
+    *,
+    role: str,
+    author_id: uuid.UUID | None,
+    content: str,
+    payload: dict[str, Any],
+    client_message_id: uuid.UUID,
+) -> Message:
+    """Messages written by the review workflow (its questions, and the user's answers as recorded). Idempotent
+    by client_message_id, which the workflow derives from the question id; does not commit. Archived projects are
+    checked by the caller (the workflow refuses to act on them), so the worker can still finish a step."""
+    existing = repo.get_by_client_id(db, conversation_id, client_message_id)
+    if existing is not None:
+        return existing
+    conv = db.scalar(select(Conversation).where(Conversation.id == conversation_id).with_for_update())
+    if conv is None:
+        raise NotFound("Conversation not found.")
+    existing = repo.get_by_client_id(db, conversation_id, client_message_id)  # re-check under the lock
+    if existing is not None:
+        return existing
+    conv.message_count += 1
+    msg = Message(
+        conversation_id=conv.id,
+        seq=conv.message_count,
+        author_id=author_id,
+        role=role,
+        content=clean_content(content or "(no text)")[:MAX_MESSAGE_CHARS],
+        payload=payload,
+        client_message_id=client_message_id,
+    )
+    conv.last_message_at = func.now()
+    conv.updated_at = func.now()
+    repo.add(db, msg)
+    return msg

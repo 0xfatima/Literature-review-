@@ -30,6 +30,16 @@ Rules:
 5. Provider timeouts, retry caps and rate limits are config, not constants in code.
 6. Secrets are never logged; the log redaction filter is unit-tested (spec §12.1).
 
+### Review workflow (Phase 3)
+| Variable | Default | Notes |
+|---|---|---|
+| `WORKFLOW_MAX_ITERATIONS` | 60 | Answered questions per checkpoint thread before the run stops with `stop_reason=max_iterations` (bounded loop, spec §5.2). Copied onto each run at creation. |
+| `WORKFLOW_DEBUG_NODE_DELAY_S` | 0 | Test hook for the worker-SIGKILL gate test. Startup refuses a non-zero value outside development/test. |
+| `LANGSMITH_TRACING`, `LANGCHAIN_TRACING_V2` | false | Not read by the app: read by `langchain-core` (a LangGraph dependency). Keep false so no workflow data leaves the deployment. |
+
+LangGraph checkpoints live in schema `lg_checkpoints` of `DATABASE_URL` (created by migration 0003; tables created by the
+library on first use under an advisory lock). Back it up with the database; it is not authoritative (tables win).
+
 ## Developer commands (exist as of Phase 1)
 `scripts/check.sh` · `scripts/migrate.sh` · `scripts/test-integration.sh` · `scripts/test-e2e.sh` · `scripts/run_stdlib_tests.py` · `scripts/validate_static.py` (see README).
 

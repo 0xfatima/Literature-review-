@@ -5,6 +5,9 @@ import { ApiError, apiFetch, json } from "@/lib/api";
 import { type PendingSend, mergeMessages, newClientId, roleLabel, settlePending } from "@/lib/chat";
 import type { Conversation, Message, MessagePage, MessagePosted, Project } from "@/lib/types";
 import { useStatus } from "@/components/status/StatusContext";
+import QuestionCard from "@/components/protocol/QuestionCard";
+import { useProtocol, useWorkflow } from "@/components/protocol/hooks";
+import { isBusy } from "@/lib/protocol";
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : "Network error. Check your connection.");
 
@@ -60,6 +63,10 @@ export default function ChatPanel({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const listEnd = useRef<HTMLDivElement>(null);
+  const workflow = useWorkflow(pid);
+  const run = workflow.data?.run ?? null;
+  const isProtocolThread = run !== null && cid !== null && run.conversation_id === cid;
+  const protocol = useProtocol(pid, run !== null);
 
   useEffect(() => {
     // Switching threads resets thread-local UI state (drafts are per thread and not persisted).
@@ -77,6 +84,12 @@ export default function ChatPanel({
     enabled: cid !== null,
   });
   const messages = mergeMessages(older, page.data?.items ?? []);
+
+  // Each workflow step writes chat messages server-side: reload the thread whenever the run moves.
+  const runVersion = run?.row_version;
+  useEffect(() => {
+    if (isProtocolThread) qc.invalidateQueries({ queryKey: ["messages", pid, cid] });
+  }, [runVersion, isProtocolThread, qc, pid, cid]);
   const hasOlder = hasOlderLoaded ?? page.data?.has_older ?? false;
 
   useEffect(() => {
@@ -238,8 +251,9 @@ export default function ChatPanel({
       </div>
 
       <p className="border-b border-line bg-canvas/40 px-3 py-2 text-xs text-muted">
-        The research assistant is not connected yet. Your messages are saved in this project and stay
-        available for it later.
+        {isProtocolThread
+          ? "Protocol setup. The questions come from a fixed protocol workflow (no AI model is used); answer them in the cards. Your progress is saved after every answer."
+          : "The research assistant is not connected yet. Your messages are saved in this project and stay available for it later."}
       </p>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
@@ -266,9 +280,34 @@ export default function ChatPanel({
           <p className="text-muted">No messages yet. Write the first one below.</p>
         )}
         <ol aria-label="Messages" className="flex flex-col gap-2">
-          {messages.map((m) => (
-            <MessageItem key={m.id} role={m.role} content={m.content} at={m.created_at} />
-          ))}
+          {messages.map((m) => {
+            const live =
+              isProtocolThread &&
+              run?.status === "awaiting_input" &&
+              m.payload?.type === "workflow_question" &&
+              m.payload.question_id === run.pending_question_id &&
+              run.pending_question &&
+              protocol.data;
+            return (
+              <MessageItem
+                key={m.id}
+                role={m.role}
+                content={m.content}
+                at={m.created_at}
+                note={
+                  live && run.pending_question && protocol.data ? (
+                    <QuestionCard
+                      key={run.pending_question.id}
+                      projectId={pid}
+                      question={run.pending_question}
+                      protocol={protocol.data}
+                      disabled={!canWrite || protocol.isFetching}
+                    />
+                  ) : undefined
+                }
+              />
+            );
+          })}
           {pending.map((p) => (
             <MessageItem
               key={p.clientId}
@@ -299,6 +338,16 @@ export default function ChatPanel({
             />
           ))}
         </ol>
+        {isProtocolThread && isBusy(run) && (
+          <p className="mt-2 text-xs text-muted" aria-live="polite">
+            Working on the next step…
+          </p>
+        )}
+        {isProtocolThread && (run?.status === "failed" || run?.status === "needs_attention") && (
+          <p role="alert" className="mt-2 text-xs text-danger">
+            {run.error_summary} Use “Restart the workflow” on the Review status tab.
+          </p>
+        )}
         <div ref={listEnd} />
       </div>
 

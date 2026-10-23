@@ -19,7 +19,7 @@ from .conftest import CSRF
 PUBLIC = {("POST", "/api/v1/auth/register"), ("POST", "/api/v1/auth/login")}
 # A body that satisfies every current request schema well enough to get PAST validation if authorization
 # were missing (authorization dependencies run first in FastAPI, but we do not want to rely on that alone).
-BODY = {"title": "x", "topic": "x", "content": "x", "expected_version": 1, "delay_s": 0}
+BODY = {"title": "x", "topic": "x", "content": "x", "expected_version": 1, "delay_s": 0, "reason": "xyz"}
 
 
 def api_routes(app):
@@ -53,13 +53,15 @@ def world(user_client):
     c1 = a.post(f"/api/v1/projects/{p1}/conversations", json={}).json()["id"]
     a.post(f"/api/v1/projects/{p1}/conversations/{c1}/messages", json={"content": "private message"})
     job = a.post("/api/v1/jobs/ping", json={"project_id": p1, "delay_s": 41}).json()["id"]
-    return a, b, {"project_id": p1, "conversation_id": c1, "job_id": job}, p2
+    assert a.post(f"/api/v1/projects/{p1}/workflow").status_code == 202  # Phase 3: workflow run + protocol draft
+    version = a.get(f"/api/v1/projects/{p1}/protocol").json()["draft"]["id"]
+    return a, b, {"project_id": p1, "conversation_id": c1, "job_id": job, "version_id": version}, p2
 
 
 def test_route_inventory_is_not_vacuous(app):
     routes = list(api_routes(app))
     scoped = [r for r in routes if "{" in r[1]]
-    assert len(routes) >= 18 and len(scoped) >= 10, routes
+    assert len(routes) >= 27 and len(scoped) >= 19, routes
 
 
 def test_every_non_public_route_requires_a_session(app, make_client, world):
@@ -104,7 +106,7 @@ def test_owner_can_read_every_object_route_used_above(app, world):
 def test_conversation_is_not_reachable_through_another_project_of_the_same_owner(app, world):
     a, _, ids, p2 = world
     for method, path in api_routes(app):
-        if "{conversation_id}" in path:
+        if "{conversation_id}" in path or "{version_id}" in path:
             r = call(a, method, fill(path, {**ids, "project_id": p2}))
             assert r.status_code == 404, f"{method} {path} via other project -> {r.status_code}"
 

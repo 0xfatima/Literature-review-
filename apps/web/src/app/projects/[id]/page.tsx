@@ -231,6 +231,10 @@ function ProjectWorkspace({ id }: { id: string }) {
           conversations={conversations.data}
           tab={tab}
           onTab={(t) => setParams({ tab: t })}
+          onOpenConversation={(cid) => {
+            qc.invalidateQueries({ queryKey: ["conversations", id] });
+            setParams({ c: cid });
+          }}
         />
       }
       statusBar={<StatusBar project={p} />}
