@@ -152,7 +152,7 @@ test("workspace tabs keep their place in the URL and empty tabs say what comes n
   await page.getByRole("tab", { name: "Papers" }).press("ArrowRight");
   await expect(page.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "true");
   await expect(page).toHaveURL(/tab=files/);
-  });
+});
 
 test("a background job shows live progress in the status bar until it finishes", async ({ page }) => {
   await register(page);
