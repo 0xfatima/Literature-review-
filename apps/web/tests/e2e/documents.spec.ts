@@ -159,8 +159,13 @@ test("archived project disables the upload input", async ({ page }) => {
   await register(page);
   await createProject(page, "Archive test");
 
-  // Archive the project.
+  // Save the workspace URL, then archive from the Projects list.
+  const projectUrl = page.url();
+  await page.getByRole("link", { name: "Projects", exact: true }).click();
   await page.getByRole("button", { name: "Archive" }).click();
+
+  // Return to the archived workspace and verify uploads are disabled.
+  await page.goto(projectUrl);
   await expect(page.getByText("This project is archived")).toBeVisible();
 
   await goToFilesTab(page);
