@@ -631,7 +631,8 @@ class PaperRecord(Base):
         Index("ix_paper_records_project_title_key", "project_id", "title_key"),
         Index("ix_paper_records_project_created", "project_id", "created_at"),
         Index(
-            "ix_paper_records_study", "study_id",
+            "ix_paper_records_study",
+            "study_id",
             postgresql_where=text("study_id IS NOT NULL"),
         ),
     )
