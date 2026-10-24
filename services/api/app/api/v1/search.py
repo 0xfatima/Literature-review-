@@ -15,6 +15,7 @@ from app.core.config import Settings, get_settings
 from app.core.rate_limit import RateLimiter
 from app.db.models import Project, SearchRun, User
 from app.db.session import get_db
+from app.schemas.documents import DocumentOut
 from app.schemas.search import (
     BroadenDecision,
     PaperDetail,
@@ -27,7 +28,7 @@ from app.schemas.search import (
     SearchRunOut,
     SearchSummary,
 )
-from app.services import paper_service, search_service
+from app.services import document_service, paper_service, search_service
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["search"])
 Dispatch = Callable[[str, str], None]
@@ -181,6 +182,11 @@ def list_papers(
 
 @router.get("/papers/{paper_id}", response_model=PaperDetail)
 def read_paper(
-    paper_id: uuid.UUID, project: Project = Depends(get_owned_project), db: Session = Depends(get_db)
+    paper_id: uuid.UUID,
+    project: Project = Depends(get_owned_project),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> PaperDetail:
-    return PaperDetail(**paper_service.detail(db, project, paper_id))
+    data = paper_service.detail(db, project, paper_id)
+    documents = document_service.documents_for_paper_id(db, settings, paper_id)
+    return PaperDetail(**data, documents=[DocumentOut(**d) for d in documents])

@@ -14,8 +14,10 @@ import re
 
 import pytest
 
+from tests.fixtures import pdfs
+
 from .conftest import CSRF
-from .support import approved, run_search_jobs, start_search
+from .support import approved, run_search_jobs, start_search, upload
 
 PUBLIC = {("POST", "/api/v1/auth/register"), ("POST", "/api/v1/auth/login")}
 # A body that satisfies every current request schema well enough to get PAST validation if authorization
@@ -60,7 +62,9 @@ def world(user_client, dispatcher):
     run = start_search(a, p1, providers=["openalex"])
     assert run_search_jobs(dispatcher) == ["completed"]
     paper = a.get(f"/api/v1/projects/{p1}/papers").json()["items"][0]["id"]
+    document = upload(a, p1, pdfs.make_pdf(["An uploaded private document. " * 20]), name="private.pdf")["id"]
     ids = {
+        "document_id": document,
         "project_id": p1,
         "conversation_id": c1,
         "job_id": job,
@@ -120,6 +124,7 @@ def test_conversation_is_not_reachable_through_another_project_of_the_same_owner
     a, _, ids, p2 = world
     for method, path in api_routes(app):
         object_ids = ("conversation_id", "version_id") + (("search_run_id", "paper_id") if method == "GET" else ())
+        object_ids += ("document_id",) if method in ("GET", "DELETE") else ()
         if any(f"{{{k}}}" in path for k in object_ids):
             r = call(a, method, fill(path, {**ids, "project_id": p2}))
             assert r.status_code == 404, f"{method} {path} via other project -> {r.status_code}"
@@ -142,3 +147,16 @@ def test_search_runs_and_papers_are_not_reachable_through_another_project_of_the
     assert a.post(f"/api/v1/projects/{p2}/search-runs/{run}/cancel").status_code == 404
     r = a.post(f"/api/v1/projects/{p2}/screening/papers/{paper}/decision", json={"decision": "include"})
     assert r.status_code == 404
+
+
+def test_documents_are_not_reachable_through_another_project_of_the_same_owner(world):
+    """With VALID bodies, so the 404 comes from the project-scoped document lookup."""
+    a, _, ids, p2 = world
+    doc = ids["document_id"]
+    base = f"/api/v1/projects/{p2}/documents/{doc}"
+    assert a.post(f"{base}/retry").status_code == 404
+    assert a.post(f"{base}/link", json={"paper_id": ids["paper_id"]}).status_code == 404
+    assert a.get(f"{base}/pages").status_code == 404
+    assert a.get(f"{base}/download").status_code == 404
+    # the document is still intact for its real project
+    assert a.get(f"/api/v1/projects/{ids['project_id']}/documents/{doc}").status_code == 200

@@ -164,3 +164,45 @@ def relevance_assess(job_id: str) -> str:
                 return "failed"
     finally:
         reset_correlation_id(token)
+
+
+@celery_app.task(name="document.process")
+def document_process(job_id: str) -> str:
+    """Read one uploaded PDF. All logic is in app.services.document_executor."""
+    from app.services import document_executor
+
+    configure_logging(get_settings().log_level)
+    token = set_correlation_id(new_correlation_id())
+    try:
+        jid = uuid.UUID(job_id)
+        with get_sessionmaker()() as db:
+            if not repo.claim(db, jid):
+                db.rollback()
+                log.info("duplicate/late delivery ignored", extra={"job_id": job_id})
+                return "ignored"
+            db.commit()
+            job = repo.get_by_id(db, jid)
+            if job is None:
+                return "ignored"
+            try:
+                return document_executor.execute(db, job, get_settings())
+            except Exception as e:  # noqa: BLE001  end visibly: the document must not stay "processing"
+                db.rollback()
+                log.exception("document job failed", extra={"job_id": job_id})
+                repo.finish(db, jid, fsm.RUNNING, fsm.FAILED, error=f"Document processing failed ({type(e).__name__}).")
+                db.commit()
+                document_executor.on_crash(db, job, e)
+                return "failed"
+    finally:
+        reset_correlation_id(token)
+
+
+@celery_app.task(name="system.purge_documents")
+def purge_documents() -> dict[str, int]:
+    """Retention and orphan sweep for stored files (scheduled by beat)."""
+    from app.providers.storage import build_store
+    from app.services import document_service
+
+    configure_logging(get_settings().log_level)
+    with get_sessionmaker()() as db:
+        return document_service.purge(db, get_settings(), build_store(get_settings()))

@@ -21,7 +21,10 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
-    beat_schedule={"sweep-jobs": {"task": "system.sweep_jobs", "schedule": _s.job_sweep_interval_s}},
+    beat_schedule={
+        "sweep-jobs": {"task": "system.sweep_jobs", "schedule": _s.job_sweep_interval_s},
+        "purge-documents": {"task": "system.purge_documents", "schedule": _s.document_purge_interval_s},
+    },
 )
 
 

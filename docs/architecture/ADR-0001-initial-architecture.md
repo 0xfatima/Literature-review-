@@ -349,3 +349,57 @@ key stops the AI part cleanly and is resumable. Each request is a `model_runs` r
 
 **A12.7 Workflow stage.** The first screening decision moves the workflow from SEARCH to RECORD_SCREENING (a `stage`
 event) and the project to `screening`. Searching remains possible afterwards.
+
+### Amendment A13 — PDF upload and full-text processing (Phase 6, 2026-10-24)
+
+**A13.1 Upload as a raw HTTP body, not multipart.** `POST /projects/{id}/documents` receives the file as
+the raw request body with `Content-Type: application/pdf`; the original name arrives percent-encoded in `X-Filename`.
+Benefits: the size cap is enforced while streaming (no full-spool-to-disk before the cap fires); browsers can report
+real upload progress via `xhr.upload.onprogress`; the OpenAPI body type is `application/pdf` throughout.
+Rejected: multipart/form-data (spools the whole body to disk before it is available as a file handle; progress
+requires chunked encoding tricks).
+
+**A13.2 Parsing in a resource-limited child process.** The PDF child (`app/documents/pdf_child.py`) is started with
+`python -I` (no user site, no `PYTHON*` environment variables), a minimal environment (no secrets: no `DATABASE_URL`,
+no `LLM_API_KEY`, no `REDIS_URL`), and POSIX resource limits (`RLIMIT_AS`, `RLIMIT_CPU`, `RLIMIT_CORE`). The
+parent supervisor caps wall-clock time and output size; if the child crashes, hangs, or is killed by OOM, the parent
+reports a clean, retryable failure without losing the stored file. Rejected: parsing inside the worker thread
+(a malicious PDF can exhaust memory or block a thread indefinitely, taking the whole worker down or causing the
+job to loop through redelivery without ever finishing).
+
+**A13.3 OCR only for pages without a text layer.**  `FEATURE_OCR=false` by default. When enabled, OCR runs
+only on pages that have images and fewer than 25 non-space text-layer characters; it never replaces a readable text
+layer unless that layer is garbled. Recognised confidence is stored per page. The OCR engine is behind `OcrEngine`;
+the only real adapter is Tesseract. The render step (page → PNG) also runs in the child process, with the same
+resource limits. Rejected: always-on OCR (expensive and potentially less accurate than a real text layer).
+
+**A13.4 Matching by identifier then by title/author.**  DOIs and arXiv ids from the text and the PDF metadata are
+the most reliable signals. A DOI that appears only as a citation in the body text is not matched automatically (it
+needs the PDF metadata, the title, or the first author's surname to be reliable). An uncertain match is stored as
+`needs_confirmation` and is **never** linked to a paper until the user confirms. Rejected: always trusting the first
+DOI on a page (papers cite dozens of DOIs; the first one is not always the paper's own DOI).
+
+**A13.5 Stored key is generated; the user's filename is display text only.**  The storage key is
+`projects/{project_uuid}/documents/{document_uuid}.pdf`, derived entirely from application-controlled identifiers.
+The sanitised original filename is stored for display and for the `Content-Disposition` download header, but it
+never appears in a storage path. All paths are validated against a strict allow-list (lower-case alnum + `-_./`)
+and the resolved path must stay inside the storage root (symlink-escape guard). Rejected: using the user's filename
+as the key (path traversal; collisions; information leakage in storage logs).
+
+**A13.6 Soft removal with a configurable retention period.**  Removing a document hides it immediately (it
+disappears from every listing and from the paper's `full_text_status`) but keeps the file for
+`DOCUMENT_REMOVED_RETENTION_DAYS` (default 30) before purging. This lets the user recover from an accidental
+removal and preserves stored evidence for any citations already written against the page text. A periodic sweep
+also deletes orphan objects (stored files with no database row, e.g. after a crash between `store.put_file` and
+the DB commit). Rejected: immediate hard-delete (irreversible; loses citation evidence).
+
+**A13.7 `paper_documents` → `paper_records.full_text_status` is a derived field.** The status is recomputed from
+the documents after every change (upload, parse, link/unlink, remove): `parsed` > `uploaded` > `failed` >
+`not_obtained`. It is never set from provider claims and can never drift from what this application actually holds.
+The provider's reported `access_status` (open PDF link, open landing page, metadata only) is kept separately on
+`paper_records` for display, but it is explicitly not `full_text_status`.
+
+**A13.8 PyMuPDF licence.** PyMuPDF is AGPL-3.0 or Artifex commercial. The deployment must be compatible with
+those terms or a commercial licence must be obtained from Artifex. This is documented here so it cannot be overlooked.
+The pin `pymupdf>=1.28.2,<2` excludes 2.0 (released 2026-10-19, within the 14-day exclusion window at Phase 6
+implementation time) and its ML dependencies (`networkx`, `onnxruntime`, etc.); 2.0 can be evaluated after review.

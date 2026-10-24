@@ -10,9 +10,10 @@ const JOB_LABELS: Record<string, string> = {
   "workflow.advance": "Review workflow step",
   "search.run": "Scholarly search",
   "relevance.assess": "Relevance assessment",
+  "document.process": "Reading PDF",
 };
 // Mirrors app/jobs/fsm.JOB_TYPES[...]["cancellable"]: the server refuses to cancel these.
-const NOT_CANCELLABLE = new Set(["workflow.advance"]);
+const NOT_CANCELLABLE = new Set(["workflow.advance", "document.process"]);
 const jobLabel = (j: Job) => JOB_LABELS[j.type] ?? j.type;
 
 /** Bottom bar: workflow stage, live background jobs (real data from /jobs), save state and errors. */

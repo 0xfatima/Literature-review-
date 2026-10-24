@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.api.deps import get_dispatcher, get_rate_limiter
+from app.api.v1.documents import get_object_store
+from app.core.config import get_settings
 from app.core.rate_limit import InMemoryRateLimiter
 from app.db.session import get_engine, get_sessionmaker
 from app.main import create_app
@@ -71,12 +73,34 @@ def dispatcher() -> FakeDispatcher:
 
 
 @pytest.fixture
-def app(dispatcher):
+def object_store(tmp_path):
+    """A REAL local-filesystem store in a temporary directory (the API and in-process worker share it)."""
+    from app.providers.storage import LocalObjectStore
+
+    return LocalObjectStore(tmp_path / "objects")
+
+
+@pytest.fixture
+def app(dispatcher, object_store):
     application = create_app()
     limiter = InMemoryRateLimiter()
     application.dependency_overrides[get_rate_limiter] = lambda: limiter
     application.dependency_overrides[get_dispatcher] = lambda: dispatcher
+    application.dependency_overrides[get_object_store] = lambda: object_store
     return application
+
+
+@pytest.fixture
+def set_settings(app):
+    """Override settings for API requests: `set_settings(upload_max_bytes=100)` returns the modified copy, which tests
+    also pass to the in-process worker so both sides agree."""
+
+    def _set(**updates):
+        s = get_settings().model_copy(update=updates)
+        app.dependency_overrides[get_settings] = lambda: s
+        return s
+
+    return _set
 
 
 @pytest.fixture

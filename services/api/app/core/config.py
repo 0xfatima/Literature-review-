@@ -8,13 +8,14 @@ from pathlib import Path
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.settings_checks import find_unsafe_settings
+from app.core.settings_checks import find_invalid_document_settings, find_unsafe_settings
 
 # The repository-root .env (services/api/app/core/config.py -> parents[4]). Loading it by absolute path means
 # `alembic`, `uvicorn` and `celery` find it whether they are started from the repo root or from services/api.
 # A .env in the current directory is read second and wins. Real environment variables always beat both files.
 # In containers neither file exists (.dockerignore excludes .env); compose injects variables instead.
-_REPO_ROOT_ENV = Path(__file__).resolve().parents[4] / ".env"
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_REPO_ROOT_ENV = _REPO_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -75,6 +76,39 @@ class Settings(BaseSettings):
     # Screening (Phase 5). Title/abstract: an exclusion reason is encouraged; set true to require one.
     screening_ta_require_exclusion_reason: bool = False
 
+    # Documents (Phase 6). Uploaded PDFs are untrusted input: they are validated at the edge, stored under a generated
+    # key (never the user's filename) and parsed in a resource-limited child process by the worker.
+    storage_backend: str = "local"  # local | memory (memory is for tests only: it cannot be shared by api and worker)
+    storage_local_root: str = (
+        "./storage"  # relative paths resolve against the repository root; api and worker MUST share it
+    )
+    upload_max_bytes: int = 50 * 1024 * 1024  # per file; infra/proxy/nginx.conf must allow a little more than this
+    upload_max_pages: int = 600  # more pages than this fails processing with an actionable message
+    upload_max_extracted_chars: int = 15_000_000  # text-bomb guard
+    upload_quota_bytes_per_project: int = 2 * 1024**3
+    upload_quota_files_per_project: int = 1000
+    upload_quota_bytes_per_user: int = 10 * 1024**3
+    rate_limit_upload_per_hour: int = 120
+    document_removed_retention_days: int = (
+        30  # removed documents keep their file this long, then are purged (0 = next sweep)
+    )
+    document_purge_interval_s: float = 3600.0  # how often the purge/orphan sweep runs
+    document_orphan_grace_s: int = 86_400  # stored objects without a database row are deleted only after this age
+    document_process_timeout_s: float = 420.0  # hard limit for the text-extraction child process
+    document_child_memory_mb: int = 2048  # address-space limit for the child process (0 = no limit; POSIX only)
+    feature_ocr: bool = False  # OCR only for pages that have no usable text layer; needs the tesseract binary
+    ocr_languages: str = "eng"  # tesseract language codes, joined with +
+    ocr_dpi: int = 200
+    ocr_max_pages: int = 100  # per document; remaining image-only pages are reported as unreadable
+    ocr_budget_s: float = 300.0  # total OCR time per document
+    ocr_timeout_per_page_s: float = 60.0
+    tesseract_cmd: str = "tesseract"
+    malware_scanner: str = "none"  # none | clamav
+    clamd_host: str = "localhost"
+    clamd_port: int = 3310
+    clamd_timeout_s: float = 60.0
+    malware_scan_required: bool = False  # true: a document that cannot be scanned fails instead of being parsed
+
     session_cookie_name: str = "srs_session"
     session_ttl_hours: int = 168
     # No default on purpose. Reserved for signed values in later phases (sessions use random opaque tokens today).
@@ -90,6 +124,11 @@ class Settings(BaseSettings):
     dev_seed_password: str | None = None
 
     @property
+    def storage_root_path(self) -> Path:
+        root = Path(self.storage_local_root).expanduser()
+        return root if root.is_absolute() else (_REPO_ROOT / root).resolve()
+
+    @property
     def allowed_origins(self) -> list[str]:
         origins = [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
         base = self.app_base_url.strip().rstrip("/")
@@ -102,6 +141,9 @@ class Settings(BaseSettings):
         problems = find_unsafe_settings(self.model_dump())
         if problems:
             raise ValueError("Unsafe configuration: " + "; ".join(problems))
+        bad = find_invalid_document_settings(self.model_dump())
+        if bad:
+            raise ValueError("Invalid configuration: " + "; ".join(bad))
         return self
 
 

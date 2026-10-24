@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.documents import DocumentOut
+
 Tier = Literal["open_access", "additional"]
 
 
@@ -192,6 +194,7 @@ class PaperDetail(PaperBrief):
     field_sources: dict[str, Any]
     possible_duplicate_of: dict[str, Any] | None
     sources: list[PaperSourceOut]
+    documents: list[DocumentOut] = []  # uploaded full texts linked to this paper (Phase 6)
 
 
 class SearchSummary(BaseModel):

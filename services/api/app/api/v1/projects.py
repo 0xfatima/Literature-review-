@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import current_user, get_owned_project
+from app.api.v1.documents import get_object_store
 from app.db.models import Project, User
 from app.db.session import get_db
+from app.providers.storage import ObjectStore
 from app.schemas.projects import ProjectCreate, ProjectList, ProjectOut, ProjectUpdate
-from app.services import project_service
+from app.services import document_service, project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -48,7 +50,12 @@ def update_project(
 
 @router.delete("/{project_id}", status_code=204)
 def delete_project(
-    project: Project = Depends(get_owned_project), user: User = Depends(current_user), db: Session = Depends(get_db)
+    project: Project = Depends(get_owned_project),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    store: ObjectStore = Depends(get_object_store),
 ) -> Response:
-    project_service.delete(db, user, project.id)
+    project_id = project.id
+    project_service.delete(db, user, project_id)
+    document_service.purge_project_objects(store, project_id)  # after the commit: files of a deleted project go too
     return Response(status_code=204)
