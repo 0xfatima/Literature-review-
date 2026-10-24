@@ -21,6 +21,11 @@ EXPECTED = {
     "screening_states",
     "paper_documents",
     "document_pages",
+    # Phase 7+8 (0007)
+    "studies",
+    "record_status_events",
+    "extraction_schemas",
+    "evidence_items",
 }
 
 
@@ -112,5 +117,5 @@ def test_every_model_declared_constraint_name_matches_the_migrated_database():
         db_names = {r[0] for r in rows}
     for table in models.Base.metadata.sorted_tables:
         for con in table.constraints:
-            if isinstance(con, (CheckConstraint, ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint)):
+            if isinstance(con, CheckConstraint | ForeignKeyConstraint | PrimaryKeyConstraint | UniqueConstraint):
                 assert con.name in db_names, f"{table.name}: constraint {con.name!r} not present in migrated DB"
