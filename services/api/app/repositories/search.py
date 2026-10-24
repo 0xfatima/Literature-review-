@@ -194,6 +194,16 @@ def sources_for(db: Session, paper_id: uuid.UUID) -> list[tuple[PaperSourceRecor
     return [(r[0], r[1], r[2]) for r in rows]
 
 
+def paper_ids_for_run(db: Session, run_id: uuid.UUID) -> list[uuid.UUID]:
+    """Return distinct paper IDs discovered by a search run."""
+    return list(
+        db.scalars(
+            select(PaperSourceRecord.paper_id)
+            .where(PaperSourceRecord.search_run_id == run_id)
+            .distinct()
+        )
+    )
+
 def project_summary(db: Session, project_id: uuid.UUID, protocol_version_id: uuid.UUID | None) -> dict[str, Any]:
     """Identification counts derived from stored records, overall and for runs of the current approved protocol."""
 
