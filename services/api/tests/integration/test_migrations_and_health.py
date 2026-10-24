@@ -19,6 +19,8 @@ EXPECTED = {
     "relevance_assessments",
     "screening_decisions",
     "screening_states",
+    "paper_documents",
+    "document_pages",
 }
 
 

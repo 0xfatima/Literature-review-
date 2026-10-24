@@ -26,6 +26,7 @@ TASK_FOR_TYPE = {
     "workflow.advance": "workflow.advance",
     "search.run": "search.run",
     "relevance.assess": "relevance.assess",
+    "document.process": "document.process",
 }
 
 
@@ -178,6 +179,10 @@ def sweep(db: Session, settings: Settings, dispatch: Dispatcher, now: datetime |
                         row_version=WorkflowRun.row_version + 1,
                     )
                 )
+            if job.type == "document.process":  # a document must not stay "processing" after its job gave up
+                from app.services import document_service
+
+                document_service.sweep_reconcile(db, job.input or {})
             # A search whose job gave up must not look busy forever; stored pages stay and it can be continued.
             db.execute(
                 update(SearchRun)

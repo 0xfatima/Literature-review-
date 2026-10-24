@@ -4,6 +4,9 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { MATCH_BASIS_LABELS, doiUrl, fmtDate } from "@/lib/search";
 import type { AccessStatus, PaperBrief, PaperDetail, PaperList } from "@/lib/types";
+import { MATCH_LABELS, PARSE_LABELS, coverageText } from "@/lib/documents";
+import { useDocumentSummary, useRefreshDocuments } from "@/components/documents/DocumentsPanel";
+import { UploadQueue, useUploader } from "@/components/documents/Uploader";
 
 const PAGE = 25;
 const ACCESS_FILTERS: { value: "" | AccessStatus; label: string }[] = [
@@ -63,6 +66,60 @@ function Identifiers({ p }: { p: PaperBrief }) {
   );
 }
 
+function PaperFullText({ projectId, paper }: { projectId: string; paper: PaperDetail }) {
+  const refresh = useRefreshDocuments(projectId);
+  const summary = useDocumentSummary(projectId);
+  const uploader = useUploader(
+    projectId,
+    paper.id,
+    summary.data?.limits.max_bytes ?? 50 * 1024 * 1024,
+    refresh,
+  );
+  return (
+    <div data-testid="paper-fulltext">
+      <h4 className="section-title mb-1">Full text</h4>
+      {paper.documents.length === 0 ? (
+        <p className="max-w-prose text-xs text-muted">
+          No PDF has been uploaded for this paper, so it can only be judged on its title and abstract.
+        </p>
+      ) : (
+        <ul className="mb-2 flex flex-col gap-1">
+          {paper.documents.map((d) => (
+            <li key={d.id} className="text-xs">
+              <span className="font-medium">{d.original_filename}</span> · {PARSE_LABELS[d.parse_status]} ·{" "}
+              {MATCH_LABELS[d.match_status]}
+              {coverageText(d) && ` · ${coverageText(d)}`}
+              {d.parse_status === "failed" && d.error_message && (
+                <span className="block text-danger">{d.error_message}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <label className="btn-secondary cursor-pointer focus-within:outline focus-within:outline-2 focus-within:outline-mark">
+        Upload a PDF for this paper
+        <input
+          type="file"
+          accept=".pdf,application/pdf"
+          className="sr-only"
+          data-testid="paper-file-input"
+          onChange={(e) => {
+            if (e.target.files?.length) uploader.add(e.target.files);
+            e.target.value = "";
+          }}
+        />
+      </label>
+      <p className="mt-1 max-w-prose text-2xs text-muted">
+        Only upload a copy you are authorised to use. The file is read in the background; manage it in the
+        Files tab.
+      </p>
+      <div className="mt-2">
+        <UploadQueue items={uploader.items} onCancel={uploader.cancel} onDismiss={uploader.dismiss} />
+      </div>
+    </div>
+  );
+}
+
 function Detail({ projectId, paperId }: { projectId: string; paperId: string }) {
   const q = useQuery({
     queryKey: ["papers", projectId, "detail", paperId],
@@ -78,8 +135,7 @@ function Detail({ projectId, paperId }: { projectId: string; paperId: string }) 
       {d.access_status === "metadata_only" ? (
         <p className="max-w-prose rounded border border-line px-3 py-2 text-xs">
           No open full text was reported for this record. To review it, obtain a copy you are authorised to
-          use (library, author, publisher). Uploading PDFs arrives with the document step; until then this
-          paper can only be judged on its title and abstract.
+          use (library, author, publisher) and upload it below.
         </p>
       ) : (
         <p className="text-xs text-muted">
@@ -97,6 +153,7 @@ function Detail({ projectId, paperId }: { projectId: string; paperId: string }) 
           . Links are as reported and have not been verified or downloaded.
         </p>
       )}
+      <PaperFullText projectId={projectId} paper={d} />
       {d.possible_duplicate_of && (
         <p className="text-xs text-mark">
           Possible duplicate of “{d.possible_duplicate_of.title}”

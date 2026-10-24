@@ -25,6 +25,7 @@ erDiagram
   paper_records ||--o{ dedupe_candidates : candidate_a
   paper_records ||--o{ paper_documents : has_pdf
   paper_documents ||--o{ document_pages : pages
+  jobs |o--o{ paper_documents : reads
   paper_records ||--o{ screening_decisions : screened
   protocol_versions ||--o{ screening_decisions : under
   screening_decisions ||--o{ screening_decision_criteria : assesses

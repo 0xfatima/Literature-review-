@@ -63,3 +63,39 @@ def default_answer(key: str, block: str) -> dict[str, Any]:
         "eligibility_suggestion": "include",
         "criteria": [],
     }
+
+
+class FakeOcr:
+    """OcrEngine double: returns canned text per rendered page (the renderer names files page-<n>.png)."""
+
+    name = "fake"
+
+    def __init__(self, texts: dict[int, str] | None = None, *, available: bool = True, confidence: float | None = 91.5):
+        self.texts, self._available, self.confidence = texts or {}, available, confidence
+        self.calls: list[int] = []
+
+    def available(self) -> bool:
+        return self._available
+
+    def recognize(self, image):  # noqa: ANN001
+        from app.documents.ocr import OcrResult
+
+        n = int(re.search(r"page-(\d+)", str(image)).group(1))  # type: ignore[union-attr]
+        self.calls.append(n)
+        return OcrResult(self.texts.get(n, ""), self.confidence)
+
+
+class FakeScanner:
+    """MalwareScanner double."""
+
+    name = "fake"
+
+    def __init__(self, status: str = "clean", detail: str | None = None):
+        self.status, self.detail = status, detail
+        self.scanned = 0
+
+    def scan(self, path):  # noqa: ANN001
+        from app.providers.malware import ScanResult
+
+        self.scanned += 1
+        return ScanResult(self.status, self.detail)  # type: ignore[arg-type]
