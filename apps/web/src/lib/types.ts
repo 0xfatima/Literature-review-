@@ -393,6 +393,7 @@ export interface PaperDetail extends PaperBrief {
   field_sources: Record<string, string>;
   possible_duplicate_of: { id: string; title: string; year: number | null; doi: string | null } | null;
   sources: PaperSource[];
+  documents: DocumentRecord[];
 }
 
 /* ---------- Phase 5: relevance and screening (backend: app/schemas/screening.py) ---------- */
@@ -534,4 +535,97 @@ export interface RelevanceStatus {
     created_at: string;
   }[];
   methods: { lexical: string; llm: string };
+}
+
+/* ---------- Phase 6: uploaded PDFs (backend: app/schemas/documents.py) ---------- */
+export type ParseStatus = "queued" | "processing" | "parsed" | "failed";
+export type MatchStatus = "unmatched" | "needs_confirmation" | "auto_matched" | "user_linked" | "confirmed";
+export type ScanStatus = "not_scanned" | "clean" | "infected" | "error";
+export type PageExtraction = "text" | "ocr" | "blank" | "unreadable";
+export interface DocumentCandidate {
+  paper_id: string;
+  score: number | null;
+  reasons: string[];
+  title: string | null;
+  year: number | null;
+  doi: string | null;
+}
+export interface DocumentWarning {
+  code: string;
+  message: string;
+  pages?: number[];
+  mean_confidence?: number | null;
+}
+export interface DocumentRecord {
+  id: string;
+  paper_id: string | null;
+  paper_title: string | null;
+  original_filename: string;
+  size_bytes: number;
+  sha256: string;
+  parse_status: ParseStatus;
+  error_code: string | null;
+  error_message: string | null;
+  page_count: number | null;
+  text_version: number;
+  pages_text: number;
+  pages_ocr: number;
+  pages_blank: number;
+  pages_unreadable: number;
+  text_coverage: number | null;
+  pdf_metadata: Record<string, string>;
+  warnings: DocumentWarning[];
+  scan_status: ScanStatus;
+  scan_detail: string | null;
+  match_status: MatchStatus;
+  match_method: string | null;
+  match_score: number | null;
+  candidates: DocumentCandidate[];
+  needs_confirmation: boolean;
+  matched_at: string | null;
+  can_retry: boolean;
+  can_download: boolean;
+  created_at: string;
+  processed_at: string | null;
+  row_version: number;
+}
+export interface DocumentList {
+  items: DocumentRecord[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+export interface DocumentSummary {
+  limits: {
+    max_bytes: number;
+    max_pages: number;
+    quota_bytes_per_project: number;
+    quota_files_per_project: number;
+    quota_bytes_per_user: number;
+    removed_retention_days: number;
+    ocr_enabled: boolean;
+    ocr_languages: string | null;
+    malware_scanner: string;
+    storage_backend: string;
+  };
+  usage: { project_bytes: number; project_files: number; user_bytes: number };
+  counts: { parse: Record<string, number>; match: Record<string, number> };
+}
+export interface DocumentPage {
+  page_no: number;
+  text: string;
+  extraction: PageExtraction;
+  char_count: number;
+  ocr_confidence: number | null;
+  warnings: string[];
+}
+export interface DocumentPageList {
+  document_id: string;
+  parse_status: ParseStatus;
+  text_version: number;
+  page_count: number | null;
+  total: number;
+  offset: number;
+  limit: number;
+  items: DocumentPage[];
 }

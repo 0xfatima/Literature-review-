@@ -57,6 +57,9 @@ JOB_TYPES: dict[str, dict[str, Any]] = {
     "search.run": {"cancellable": True, "max_attempts": 3},
     # Lexical + optional AI relevance assessment. Cancellable between batches; results so far are kept.
     "relevance.assess": {"cancellable": True, "max_attempts": 2},
+    # Reads one uploaded PDF (fetch, checksum, optional malware scan, text extraction, OCR where needed, matching).
+    # Not cancellable: the result is committed atomically, and a half-read file must never be left behind.
+    "document.process": {"cancellable": False, "max_attempts": 2},
 }
 
 

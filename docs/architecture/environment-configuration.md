@@ -54,3 +54,10 @@ library on first use under an advisory lock). Back it up with the database; it i
 
 ## Deployment checklist (stub, expanded in M8)
 Secrets in secret store · HTTPS · cookie flags · CORS · migrations run before rollout · DB backup + restore drill · bucket policy · log redaction verified · quotas/alerts · health checks wired (`/healthz`, `/readyz`).
+
+> **Phase 6 note:** `STORAGE_*`, `UPLOAD_*`, `DOCUMENT_*`, `FEATURE_OCR`, `OCR_*`, `TESSERACT_CMD`,
+> `MALWARE_*`, `CLAMD_*`, `RATE_LIMIT_UPLOAD_PER_HOUR` are now read. See `.env.example` for defaults.
+> The API and the worker **must** share the same storage directory (compose: named volume `storage` mounted at
+> `/srv/storage`; `STORAGE_LOCAL_ROOT=/srv/storage`). `STORAGE_BACKEND=memory` is for tests only: it cannot
+> be shared between processes. `FEATURE_OCR=false` by default; set to `true` and install the Tesseract binary
+> plus the language packs you need (the worker image installs `tesseract-ocr-eng`).

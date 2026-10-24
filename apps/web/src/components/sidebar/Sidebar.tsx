@@ -2,7 +2,8 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
-import type { Conversation, ConversationList, ProjectList } from "@/lib/types";
+import { PARSE_LABELS } from "@/lib/documents";
+import type { Conversation, ConversationList, DocumentList, ProjectList } from "@/lib/types";
 
 function relTime(iso: string): string {
   const d = new Date(iso);
@@ -53,6 +54,15 @@ export default function Sidebar({
   const projects = useQuery({
     queryKey: ["projects", false],
     queryFn: () => apiFetch<ProjectList>("/projects?include_archived=false"),
+  });
+
+  const files = useQuery({
+    queryKey: ["documents", projectId, "list", "sidebar"],
+    queryFn: () => apiFetch<DocumentList>(`/projects/${projectId}/documents?limit=8`),
+    refetchInterval: (q) =>
+      q.state.data?.items.some((d) => d.parse_status === "queued" || d.parse_status === "processing")
+        ? 3000
+        : false,
   });
 
   return (
@@ -130,10 +140,25 @@ export default function Sidebar({
       </Section>
 
       <Section title="Files">
-        <p className="px-1 text-muted">
-          No files yet. PDF upload and parsing are added with the document pipeline; you will upload papers
-          you are authorised to access here.
-        </p>
+        {files.isError && <p className="px-1 text-danger">Could not load files.</p>}
+        {files.data && files.data.items.length === 0 && (
+          <p className="px-1 text-muted">
+            No files yet. Upload papers you are authorised to access in the Files tab.
+          </p>
+        )}
+        <ul className="flex flex-col gap-0.5" data-testid="sidebar-files">
+          {files.data?.items.map((d) => (
+            <li key={d.id} className="px-1" title={d.original_filename}>
+              <span className="block truncate">{d.original_filename}</span>
+              <span className="text-2xs text-muted">{PARSE_LABELS[d.parse_status]}</span>
+            </li>
+          ))}
+        </ul>
+        {files.data && files.data.total > files.data.items.length && (
+          <p className="px-1 pt-1 text-2xs text-muted">
+            and {files.data.total - files.data.items.length} more in the Files tab
+          </p>
+        )}
       </Section>
     </div>
   );

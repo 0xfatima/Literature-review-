@@ -1,7 +1,8 @@
 """ORM models: users, auth_sessions, projects, audit_events, jobs (Phase 1); conversations, messages (Phase 2);
 protocol_versions, protocol_questions, protocol_criteria, workflow_runs, workflow_events (Phase 3);
 search_runs, search_queries, paper_records, paper_source_records (Phase 4);
-model_runs, relevance_assessments, screening_decisions, screening_states (Phase 5).
+model_runs, relevance_assessments, screening_decisions, screening_states (Phase 5);
+paper_documents, document_pages (Phase 6).
 
 Password-reset tokens are intentionally absent (recovery is deferred; see ADR amendment A8).
 """
@@ -13,9 +14,11 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -28,6 +31,8 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, now_col, uuid_pk
+
+_sql = text  # alias: DocumentPage has a column called `text`, which shadows the function inside its class body
 
 PROJECT_STATUSES = (
     "setup",
@@ -816,4 +821,124 @@ class ScreeningState(Base):
         CheckConstraint("stage in " + _in(SCREENING_STAGES), name="stage"),
         CheckConstraint("decision in " + _in(SCREENING_DECISIONS), name="decision"),
         Index("ix_screening_states_project_stage", "project_id", "stage", "decision"),
+    )
+
+
+# ---------- Phase 6: uploaded PDFs and extracted page text ----------
+
+DOCUMENT_PARSE_STATUSES = ("queued", "processing", "parsed", "failed")
+DOCUMENT_ACTIVE_PARSE = ("queued", "processing")
+DOCUMENT_MATCH_STATUSES = ("unmatched", "needs_confirmation", "auto_matched", "user_linked", "confirmed")
+DOCUMENT_LINKED_MATCH = ("auto_matched", "user_linked", "confirmed")
+DOCUMENT_SCAN_STATUSES = ("not_scanned", "clean", "infected", "error")
+PAGE_EXTRACTIONS = ("text", "ocr", "blank", "unreadable")
+
+
+class PaperDocument(Base):
+    """One uploaded PDF. The file lives in object storage under `storage_key` (generated, never the user's filename);
+    this row holds what the application knows about it. `paper_id` is set only once the file is linked to a paper
+    (chosen by the user at upload, matched with high confidence, or confirmed by the user): a document that merely
+    resembles a paper stays unlinked until the user confirms. Removal is soft (`removed_at`); the file is purged
+    after the retention period (`purged_at`, `storage_key` cleared) but the row keeps the hash and timeline."""
+
+    __tablename__ = "paper_documents"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    paper_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("paper_records.id", ondelete="CASCADE")
+    )
+    uploader_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    storage_key: Mapped[str | None] = mapped_column(String(300))
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)  # display only; sanitised
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    parse_status: Mapped[str] = mapped_column(String(12), nullable=False, server_default="queued")
+    error_code: Mapped[str | None] = mapped_column(String(48))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    error_retryable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    text_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")  # 0 = no text yet
+    pages_text: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    pages_ocr: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    pages_blank: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    pages_unreadable: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    pdf_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    warnings: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    scan_status: Mapped[str] = mapped_column(String(12), nullable=False, server_default="not_scanned")
+    scan_detail: Mapped[str | None] = mapped_column(String(200))
+    match_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="unmatched")
+    match_method: Mapped[str | None] = mapped_column(String(24))
+    match_score: Mapped[float | None] = mapped_column(Float)
+    match_candidates: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    matched_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # user id; NULL = automatic
+    matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processing_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL")
+    )
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    removed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    created_at: Mapped[datetime] = now_col()
+    updated_at: Mapped[datetime] = now_col()
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("parse_status in " + _in(DOCUMENT_PARSE_STATUSES), name="parse_status"),
+        CheckConstraint("match_status in " + _in(DOCUMENT_MATCH_STATUSES), name="match_status"),
+        CheckConstraint("scan_status in " + _in(DOCUMENT_SCAN_STATUSES), name="scan_status"),
+        CheckConstraint("size_bytes > 0", name="size"),
+        CheckConstraint("text_version >= 0", name="text_version"),
+        CheckConstraint(
+            "match_status NOT IN " + _in(DOCUMENT_LINKED_MATCH) + " OR paper_id IS NOT NULL", name="linked_has_paper"
+        ),
+        CheckConstraint("parse_status <> 'failed' OR error_code IS NOT NULL", name="failed_has_code"),
+        Index(
+            "uq_paper_documents_project_sha256_active",
+            "project_id",
+            "sha256",
+            unique=True,
+            postgresql_where=text("removed_at IS NULL"),
+        ),
+        Index("ix_paper_documents_project_created", "project_id", "created_at"),
+        Index("ix_paper_documents_paper", "paper_id"),
+        Index(
+            "ix_paper_documents_removed",
+            "removed_at",
+            postgresql_where=text("removed_at IS NOT NULL AND purged_at IS NULL"),
+        ),
+        Index("ix_paper_documents_job", "processing_job_id"),
+    )
+
+
+class DocumentPage(Base):
+    """Text of one page of one extraction. Rows of older `text_version`s are kept so that anything that cites a page
+    (evidence, in later phases) keeps pointing at the exact text it was taken from; only the document's current
+    `text_version` is shown. Deleted when the document's file is purged."""
+
+    __tablename__ = "document_pages"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("paper_documents.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    page_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    text_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    extraction: Mapped[str] = mapped_column(String(12), nullable=False)
+    char_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    ocr_confidence: Mapped[float | None] = mapped_column(Float)
+    warnings: Mapped[list[str]] = mapped_column(JSONB, nullable=False, server_default=_sql("'[]'::jsonb"))
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_no", "text_version", name="uq_document_pages_document_id"),
+        CheckConstraint("extraction in " + _in(PAGE_EXTRACTIONS), name="extraction"),
+        CheckConstraint("page_no >= 1 AND text_version >= 1", name="numbers"),
+        Index("ix_document_pages_project", "project_id"),
     )

@@ -8,6 +8,7 @@ import { useStatus } from "@/components/status/StatusContext";
 import ProtocolPanel from "@/components/protocol/ProtocolPanel";
 import SearchPanel from "@/components/search/SearchPanel";
 import PapersPanel from "@/components/papers/PapersPanel";
+import DocumentsPanel from "@/components/documents/DocumentsPanel";
 import ScreeningPanel from "@/components/screening/ScreeningPanel";
 import { useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
 import { WORKFLOW_STAGES, statusText } from "@/lib/protocol";
@@ -110,6 +111,7 @@ export const TABS = [
   { id: "search", label: "Search" },
   { id: "screening", label: "Screening" },
   { id: "papers", label: "Papers" },
+  { id: "files", label: "Files" },
   { id: "tables", label: "Tables" },
   { id: "artifacts", label: "Artifacts" },
 ] as const;
@@ -317,6 +319,7 @@ export default function Workspace({
           />
         )}
         {tab === "papers" && <PapersPanel projectId={project.id} onOpenSearch={() => onTab("search")} />}
+        {tab === "files" && <DocumentsPanel projectId={project.id} canWrite={project.archived_at === null} />}
         {tab === "tables" && (
           <Empty title="No tables yet">
             The evidence matrix and comparison tables are built from data extracted from included papers, each
