@@ -4,7 +4,8 @@ search_runs, search_queries, paper_records, paper_source_records (Phase 4);
 model_runs, relevance_assessments, screening_decisions, screening_states (Phase 5);
 paper_documents, document_pages (Phase 6); studies, PRISMA events, extraction schemas and evidence items (Phases 7-8);
 evidence_item_revisions, evidence_outputs, evidence_output_items (Phase 9);
-appraisal_records, appraisal_revisions, synthesis_versions (Phase 10).
+appraisal_records, appraisal_revisions, synthesis_versions (Phase 10);
+draft_versions, claim_evidence_links, report_exports (Phase 11).
 
 Password-reset tokens are intentionally absent (recovery is deferred; see ADR amendment A8).
 """
@@ -1352,4 +1353,105 @@ class SynthesisVersion(Base):
         UniqueConstraint("project_id", "version", name="uq_synthesis_versions_project_version"),
         CheckConstraint("status in " + _in(SYNTHESIS_STATUSES), name="status"),
         Index("ix_synthesis_versions_project", "project_id"),
+    )
+
+
+# ---------- Phase 11: review report drafts and exports ----------
+
+DRAFT_STATUSES = ("current", "superseded")
+EXPORT_FORMATS = ("docx", "markdown", "supplementary_zip", "prisma_json")
+
+
+class DraftVersion(Base):
+    """One immutable version of the review report. Every edit, verification mark or regeneration creates a new
+    version (the previous one becomes `superseded`). `sections` hold blocks: paragraphs (generated or edited text with
+    [@key] citation markers), statements from the accepted synthesis, and tables built from stored data only.
+    `review_state` snapshots what the draft was generated from (protocol, schema, synthesis, PRISMA counts, search
+    runs) with a fingerprint, so a draft can be checked against the current data."""
+
+    __tablename__ = "draft_versions"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(12), nullable=False, server_default="current")
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    sections: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    references: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    review_state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    validation: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    synthesis_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("synthesis_versions.id", ondelete="SET NULL")
+    )
+    protocol_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("protocol_versions.id", ondelete="SET NULL")
+    )
+    extraction_schema_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("extraction_schemas.id", ondelete="SET NULL")
+    )
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("draft_versions.id", ondelete="SET NULL")
+    )
+    change_summary: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = now_col()
+    __table_args__ = (
+        UniqueConstraint("project_id", "version", name="uq_draft_versions_project_version"),
+        CheckConstraint("status in " + _in(DRAFT_STATUSES), name="status"),
+        Index("ix_draft_versions_project", "project_id"),
+    )
+
+
+class ClaimEvidenceLink(Base):
+    """A citation in a draft version: claim (block) -> stored scholarly record, optionally the evidence item and the
+    revision that supports it. Lets every reference be traced to a paper record and every claim to its evidence."""
+
+    __tablename__ = "claim_evidence_links"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    draft_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("draft_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    claim_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    paper_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("paper_records.id", ondelete="CASCADE"), nullable=False
+    )
+    evidence_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("evidence_items.id", ondelete="SET NULL")
+    )
+    evidence_revision: Mapped[int | None] = mapped_column(Integer)
+    citation_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    citation_locator: Mapped[str | None] = mapped_column(String(64))
+    __table_args__ = (
+        Index("ix_claim_evidence_links_draft", "draft_version_id"),
+        Index("ix_claim_evidence_links_paper", "paper_id"),
+    )
+
+
+class ReportExport(Base):
+    """A delivered export: which draft version, which format, the SHA-256 of the exact bytes, and the review state
+    and validation summary at export time."""
+
+    __tablename__ = "report_exports"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    draft_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("draft_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    format: Mapped[str] = mapped_column(String(24), nullable=False)
+    filename: Mapped[str] = mapped_column(String(200), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    review_state: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    validation_summary: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    data_changed_since_draft: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = now_col()
+    __table_args__ = (
+        CheckConstraint("format in " + _in(EXPORT_FORMATS), name="format"),
+        Index("ix_report_exports_project_created", "project_id", "created_at"),
     )

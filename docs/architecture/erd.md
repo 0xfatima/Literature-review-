@@ -52,6 +52,8 @@ erDiagram
   projects ||--o{ draft_versions : versions
   synthesis_versions ||--o{ draft_versions : feeds
   draft_versions ||--o{ claim_evidence_links : cites
+  projects ||--o{ report_exports : exports
+  draft_versions ||--o{ report_exports : exported_as
   paper_records ||--o{ claim_evidence_links : target
   evidence_items ||--o{ claim_evidence_links : supports
   protocol_questions ||--o{ question_coverage : covered
@@ -341,10 +343,19 @@ erDiagram
   draft_versions {
     uuid id PK
     uuid project_id FK
-    uuid synthesis_version_id FK
     int version
-    jsonb sections
     string status
+    text title
+    jsonb sections
+    jsonb references
+    jsonb review_state
+    jsonb validation
+    uuid synthesis_version_id FK
+    uuid protocol_version_id FK
+    uuid extraction_schema_id FK
+    uuid supersedes_id FK
+    text change_summary
+    timestamptz created_at
   }
   claim_evidence_links {
     uuid id PK
@@ -352,7 +363,22 @@ erDiagram
     string claim_id
     uuid paper_id FK
     uuid evidence_item_id FK
+    int evidence_revision
+    string citation_key
     string citation_locator
+  }
+  report_exports {
+    uuid id PK
+    uuid project_id FK
+    uuid draft_version_id FK
+    string format
+    string filename
+    string sha256
+    int byte_size
+    jsonb review_state
+    jsonb validation_summary
+    bool data_changed_since_draft
+    timestamptz created_at
   }
   question_coverage {
     uuid id PK
@@ -451,6 +477,9 @@ erDiagram
 | `appraisal_records` | unique `(paper_id, framework_key)`; reviewer judgements and AI suggestions stored apart per domain; approval requires every domain judged by a reviewer | Phase 10 |
 | `appraisal_revisions` | unique `(appraisal_record_id, revision)`; append-only trigger | Phase 10 history |
 | `synthesis_versions` | unique `(project_id, version)`; one draft per project (service); accepted versions immutable; statements cite evidence item + revision, certainty computed by rules | Phase 10 |
+| `draft_versions` | unique `(project_id, version)`; immutable versions (every edit = new version, previous `superseded`); tables only from stored data | Phase 11 |
+| `claim_evidence_links` | FK to `paper_records` (every citation is a stored record) and optional `evidence_items` + revision | Phase 11 |
+| `report_exports` | format CHECK; SHA-256 of delivered bytes + review state at export | Phase 11 |
 | `llm_consents` | partial unique `(project_id, provider, model, data_class) WHERE revoked_at IS NULL` | gate G3 |
 | `screening_decision_criteria` | unique `(screening_decision_id, protocol_criterion_id)`; `assessment` in `met\|not_met\|unclear` | criterion-level rationale (spec §3.6) |
 | `jobs` | partial unique `(owner_id, request_key) WHERE request_key IS NOT NULL`; partial unique `(owner_id, type, COALESCE(project_id, zero-uuid), input_fingerprint) WHERE status IN ('queued','running')` | replay-safe submission **and** no duplicate in-flight work, **without** blocking legitimate reruns (A5) |
