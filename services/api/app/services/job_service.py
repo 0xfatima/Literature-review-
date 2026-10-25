@@ -38,9 +38,7 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def get_by_request_key(
-    db: Session, owner_id: uuid.UUID, request_key: str
-) -> Job | None:
+def get_by_request_key(db: Session, owner_id: uuid.UUID, request_key: str) -> Job | None:
     """Return the job associated with an owner's idempotency key, if any."""
     return repo.get_by_request_key(db, owner_id, request_key)
 

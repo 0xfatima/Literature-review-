@@ -104,7 +104,6 @@ def test_non_transient_failure_goes_to_a_person_who_can_skip(world):
     assert "extraction" in out["skipped"] and "report" in out["completed"]
 
 
-
 @pytest.mark.parametrize(
     ("stage", "flag"),
     [
@@ -142,6 +141,7 @@ def test_manual_retry_clears_ai_dispatch_flag(world, stage, flag):
     )
 
     assert flag not in ctx.run.counters
+
 
 def test_without_autonomy_the_run_asks_first_and_can_be_stopped(world):
     w, dispatched = world
