@@ -14,6 +14,7 @@ import {
   ScopeEditor,
   type ScopeValue,
 } from "./Editors";
+import ApprovalPrompt from "@/components/common/ApprovalPrompt";
 import { useAnswer } from "./hooks";
 import ProtocolSummary from "./ProtocolSummary";
 
@@ -34,11 +35,13 @@ export default function QuestionCard({
   question,
   protocol,
   disabled,
+  onAsk,
 }: {
   projectId: string;
   question: PendingQuestion;
   protocol: ProtocolOverview;
   disabled: boolean;
+  onAsk?: () => void;
 }) {
   const draft = protocol.draft;
   const c = draft?.content;
@@ -256,20 +259,24 @@ export default function QuestionCard({
   }
 
   return (
-    <section
-      aria-label="Workflow question"
-      className="mt-2 rounded border border-mark/50 bg-canvas/40 p-3"
-      data-testid="question-card"
-      data-kind={question.kind}
+    <ApprovalPrompt
+      label="Workflow question"
+      help={question.help}
+      testId="question-card"
+      kind={question.kind}
+      onAsk={onAsk}
+      footer={
+        <>
+          {err && (
+            <p role="alert" className="mt-2 text-sm text-danger">
+              {err}
+            </p>
+          )}
+          {answer.isPending && <p className="mt-2 text-xs text-muted">Saving…</p>}
+        </>
+      }
     >
-      <p className="mb-2 text-xs text-muted">{question.help}</p>
       {body}
-      {err && (
-        <p role="alert" className="mt-2 text-sm text-danger">
-          {err}
-        </p>
-      )}
-      {answer.isPending && <p className="mt-2 text-xs text-muted">Saving…</p>}
-    </section>
+    </ApprovalPrompt>
   );
 }

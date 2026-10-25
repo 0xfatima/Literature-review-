@@ -26,6 +26,8 @@ import type {
   ScreeningReason,
 } from "@/lib/types";
 import { useStatus } from "@/components/status/StatusContext";
+import DecisionButtons, { ExcludeForm } from "@/components/common/DecisionButtons";
+import { useWorkspace } from "@/components/workspace/WorkspaceContext";
 
 const PAGE = 20;
 const errText = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : fallback);
@@ -33,7 +35,7 @@ const errText = (e: unknown, fallback: string) => (e instanceof ApiError ? e.mes
 function useRefresh(projectId: string) {
   const qc = useQueryClient();
   return () => {
-    for (const k of ["screening", "relevance", "jobs", "project", "workflow"])
+    for (const k of ["screening", "relevance", "jobs", "project", "workflow", "workspace", "prisma"])
       qc.invalidateQueries({ queryKey: [k, projectId] });
   };
 }
@@ -137,62 +139,6 @@ function AiWhy({ a }: { a: Assessment }) {
 
 /* ---------- decision controls ---------- */
 
-function ExcludeForm({
-  reasons,
-  requireReason,
-  onSubmit,
-  onCancel,
-  busy,
-}: {
-  reasons: ScreeningReason[];
-  requireReason: boolean;
-  onSubmit: (reason: string | null, note: string | null) => void;
-  onCancel: () => void;
-  busy: boolean;
-}) {
-  const [reason, setReason] = useState("");
-  const [note, setNote] = useState("");
-  const needsNote = reason === "other" && !note.trim();
-  const blocked = (requireReason && !reason) || needsNote;
-  return (
-    <div className="mt-2 flex flex-col gap-2 rounded border border-line p-3">
-      <label className="flex flex-col gap-1 text-xs text-muted">
-        Exclusion reason {requireReason ? "(required)" : "(recommended)"}
-        <select className="input" value={reason} onChange={(e) => setReason(e.target.value)} autoFocus>
-          <option value="">{requireReason ? "Choose a reason" : "No reason given"}</option>
-          {reasons.map((r) => (
-            <option key={r.code} value={r.code}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex flex-col gap-1 text-xs text-muted">
-        Note {reason === "other" ? "(required for “other”)" : "(optional)"}
-        <textarea
-          className="input min-h-[3rem]"
-          value={note}
-          maxLength={2000}
-          onChange={(e) => setNote(e.target.value)}
-        />
-      </label>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          className="btn"
-          disabled={busy || blocked}
-          onClick={() => onSubmit(reason || null, note.trim() || null)}
-        >
-          Exclude
-        </button>
-        <button type="button" className="btn-ghost" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function History({
   projectId,
   paperId,
@@ -258,6 +204,7 @@ function Card({
   onUndone: () => void;
 }) {
   const { reportError } = useStatus();
+  const ws = useWorkspace();
   const refresh = useRefresh(projectId);
   const [excluding, setExcluding] = useState(false);
   const [why, setWhy] = useState(false);
@@ -372,10 +319,14 @@ function Card({
             )}
           </p>
 
-          <div
-            className="mt-3 flex flex-wrap items-center gap-2"
-            role="group"
-            aria-label="Screening decision"
+          <DecisionButtons
+            decision={item.decision}
+            reasons={reasons}
+            requireReason={requireReason}
+            busy={busy}
+            excluding={excluding}
+            setExcluding={setExcluding}
+            onDecide={(d) => decide.mutate(d)}
           >
             <span className="text-sm" data-testid="decision-label">
               Decision: <span className="text-ink">{item.decision_label}</span>
@@ -385,29 +336,8 @@ function Card({
                 </span>
               )}
             </span>
-            {(["include", "uncertain"] as const).map((d) => (
-              <button
-                key={d}
-                type="button"
-                className={item.decision === d ? "btn" : "btn-secondary"}
-                aria-pressed={item.decision === d}
-                aria-keyshortcuts={d === "include" ? "I" : "U"}
-                disabled={busy}
-                onClick={() => decide.mutate({ decision: d })}
-              >
-                {DECISION_LABELS[d]}
-              </button>
-            ))}
-            <button
-              type="button"
-              className={item.decision === "exclude" ? "btn" : "btn-secondary"}
-              aria-pressed={item.decision === "exclude"}
-              aria-keyshortcuts="E"
-              disabled={busy}
-              onClick={() => setExcluding(true)}
-            >
-              {DECISION_LABELS.exclude}…
-            </button>
+          </DecisionButtons>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <button
               type="button"
               className="btn-ghost text-xs"
@@ -416,16 +346,21 @@ function Card({
             >
               {history ? "Hide history" : "History"}
             </button>
+            {ws && (
+              <button type="button" className="btn-ghost text-xs" onClick={() => ws.openPaper(item.paper_id)}>
+                Inspect paper
+              </button>
+            )}
+            {ws && item.decision === "exclude" && (
+              <button
+                type="button"
+                className="btn-ghost text-xs"
+                onClick={() => ws.openPaper(item.paper_id, "screening")}
+              >
+                Explain this exclusion
+              </button>
+            )}
           </div>
-          {excluding && (
-            <ExcludeForm
-              reasons={reasons}
-              requireReason={requireReason}
-              busy={decide.isPending}
-              onCancel={() => setExcluding(false)}
-              onSubmit={(reason_code, note) => decide.mutate({ decision: "exclude", reason_code, note })}
-            />
-          )}
           {history && (
             <div className="mt-2">
               <History projectId={projectId} paperId={item.paper_id} onUndo={(id) => undo.mutate(id)} />

@@ -14,6 +14,7 @@ from app.core.rate_limit import InMemoryRateLimiter, RateLimiter, RedisRateLimit
 from app.db.models import AuthSession, Project, User
 from app.db.session import get_db
 from app.jobs.celery_app import send_task
+from app.providers.llm import LLMGateway, build_gateway
 from app.services import auth_service, project_service
 
 
@@ -34,6 +35,11 @@ def get_rate_limiter() -> RateLimiter:
 
 def get_dispatcher() -> Callable[[str, str], None]:
     return send_task
+
+
+def get_llm_gateway(settings: Settings = Depends(get_settings)) -> LLMGateway:
+    """The AI gateway for synchronous, short calls (the workspace assistant). Tests override this dependency."""
+    return build_gateway(settings)
 
 
 def client_key(request: Request, settings: Settings = Depends(get_settings)) -> str:

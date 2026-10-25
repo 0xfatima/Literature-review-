@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useStatus } from "@/components/status/StatusContext";
+import { useUnsavedChanges } from "@/components/workspace/WorkspaceContext";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import { humanize, undecidedDomains } from "@/lib/synthesis";
 import type {
@@ -58,10 +59,18 @@ function Editor({
   const { reportError } = useStatus();
   const answers = record?.answers ?? {};
   const [form, setForm] = useState(() => initialForm(answers, fw));
+  const [initial] = useState(() => JSON.stringify(initialForm(answers, fw)));
   const [overall, setOverall] = useState(record?.overall_judgement ?? "");
   const [overallWhy, setOverallWhy] = useState(record?.overall_justification ?? "");
   const [reason, setReason] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
+  useUnsavedChanges(
+    `appraisal-${paper.paper.id}-${fw.key}`,
+    JSON.stringify(form) !== initial ||
+      overall !== (record?.overall_judgement ?? "") ||
+      overallWhy !== (record?.overall_justification ?? "") ||
+      !!reason,
+  );
   const url = `/projects/${projectId}/appraisal/papers/${paper.paper.id}`;
   const done = () => {
     setMsg(null);

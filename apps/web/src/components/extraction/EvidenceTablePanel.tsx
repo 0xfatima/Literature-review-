@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useStatus } from "@/components/status/StatusContext";
+import { useUnsavedChanges, useWorkspace } from "@/components/workspace/WorkspaceContext";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import {
   EVIDENCE_LABELS,
@@ -162,6 +163,13 @@ function EditForm({
   const [note, setNote] = useState(item?.note ?? "");
   const [reason, setReason] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  useUnsavedChanges(
+    `evidence-edit-${base}`,
+    value !== formatValue(item?.value) ||
+      excerpt !== (item?.excerpt ?? "") ||
+      note !== (item?.note ?? "") ||
+      !!reason,
+  );
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       apiFetch<EvidenceItem>(base, { method: "PUT", ...json(body) }),
@@ -422,6 +430,7 @@ export default function EvidenceTablePanel({
   projectId: string;
   canWrite: boolean;
 }) {
+  const ws = useWorkspace();
   const qc = useQueryClient();
   const { reportError } = useStatus();
   const [selected, setSelected] = useState<{ paperId: string; fieldKey: string } | null>(null);
@@ -582,7 +591,17 @@ export default function EvidenceTablePanel({
             {(tbl?.rows ?? []).map((r) => (
               <tr key={r.paper.id} className="border-t border-line align-top">
                 <th scope="row" className="max-w-xs p-2 font-normal">
-                  <div className="font-medium">{r.paper.title}</div>
+                  {ws ? (
+                    <button
+                      type="button"
+                      className="text-left font-medium text-link"
+                      onClick={() => ws.openPaper(r.paper.id, "evidence")}
+                    >
+                      {r.paper.title}
+                    </button>
+                  ) : (
+                    <div className="font-medium">{r.paper.title}</div>
+                  )}
                   <div className="text-muted">
                     {[r.paper.first_author, r.paper.year].filter(Boolean).join(", ")}
                     {!r.paper.document_id && " · no full text"}

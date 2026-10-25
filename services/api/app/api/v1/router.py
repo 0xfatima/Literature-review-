@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     appraisal,
+    assist,
     auth,
     conversations,
     documents,
@@ -30,3 +31,4 @@ api_router.include_router(extraction.router)
 api_router.include_router(appraisal.router)
 api_router.include_router(synthesis.router)
 api_router.include_router(reports.router)
+api_router.include_router(assist.router)

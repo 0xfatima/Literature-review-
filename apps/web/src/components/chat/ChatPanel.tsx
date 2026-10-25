@@ -8,6 +8,33 @@ import { useStatus } from "@/components/status/StatusContext";
 import QuestionCard from "@/components/protocol/QuestionCard";
 import { useProtocol, useWorkflow } from "@/components/protocol/hooks";
 import { isBusy } from "@/lib/protocol";
+import { describeError, loadDraft, saveDraft } from "@/lib/workspace";
+import { useUnsavedChanges, useWorkspace } from "@/components/workspace/WorkspaceContext";
+
+/** Label for application-written messages, so AI answers and record-based explanations are never confused. */
+function payloadNote(payload: Message["payload"], openPaper: ((id: string) => void) | null): React.ReactNode {
+  const type = payload?.type;
+  if (type !== "ai_answer" && type !== "assist_result") return undefined;
+  const paperId = typeof payload?.paper_id === "string" ? payload.paper_id : null;
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-2 text-2xs text-muted">
+      <span>
+        {type === "ai_answer"
+          ? `AI answer — advisory, check it against the protocol and sources${
+              payload?.answerable_from_context === false
+                ? " (the AI could not answer from the review data)"
+                : ""
+            }.`
+          : "Explanation built from the review record (no AI)."}
+      </span>
+      {paperId && openPaper && (
+        <button type="button" className="text-link underline" onClick={() => openPaper(paperId)}>
+          Open paper
+        </button>
+      )}
+    </p>
+  );
+}
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : "Network error. Check your connection.");
 
@@ -56,7 +83,14 @@ export default function ChatPanel({
   const cid = conversation?.id ?? null;
   const base = `/projects/${pid}/conversations/${cid}`;
 
-  const [draft, setDraft] = useState("");
+  const [draft, setDraftState] = useState("");
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const ws = useWorkspace();
+  const setDraft = (v: string) => {
+    setDraftState(v);
+    if (cid) saveDraft(`chat:${cid}`, v); // kept per thread for this browser tab, so switching never loses it
+  };
+  useUnsavedChanges("chat-draft", draft.trim().length > 0);
   const [pending, setPending] = useState<PendingSend[]>([]);
   const [older, setOlder] = useState<Message[]>([]);
   const [hasOlderLoaded, setHasOlderLoaded] = useState<boolean | null>(null);
@@ -69,8 +103,8 @@ export default function ChatPanel({
   const protocol = useProtocol(pid, run !== null);
 
   useEffect(() => {
-    // Switching threads resets thread-local UI state (drafts are per thread and not persisted).
-    setDraft("");
+    // Switching threads resets thread-local UI state; each thread's unsent draft is restored.
+    setDraftState(cid ? loadDraft(`chat:${cid}`) : "");
     setPending([]);
     setOlder([]);
     setHasOlderLoaded(null);
@@ -97,6 +131,36 @@ export default function ChatPanel({
   }, [messages.length, pending.length]);
 
   const refreshThreads = () => qc.invalidateQueries({ queryKey: ["conversations", pid] });
+
+  useEffect(() => {
+    if (!ws) return;
+    ws.registerComposer((text) => {
+      setDraftState(text);
+      if (cid) saveDraft(`chat:${cid}`, text);
+      requestAnimationFrame(() => composerRef.current?.focus());
+    });
+    return () => ws.registerComposer(null);
+  }, [ws, cid]);
+
+  const assist = useQuery({
+    queryKey: ["assist", pid, "status"],
+    queryFn: () =>
+      apiFetch<{ assistant_available: boolean; data_sent: string }>(`/projects/${pid}/assist/status`),
+    staleTime: 60_000,
+  });
+  const ask = useMutation({
+    mutationFn: (question: string) =>
+      apiFetch(`/projects/${pid}/conversations/${cid}/ask`, {
+        method: "POST",
+        ...json({ question, paper_id: ws?.paperId ?? null }),
+      }),
+    onSuccess: () => {
+      setDraft("");
+      qc.invalidateQueries({ queryKey: ["messages", pid, cid] });
+      refreshThreads();
+    },
+    onError: (e) => reportError(describeError(e, "The assistant could not answer.")),
+  });
 
   const loadOlder = useMutation({
     mutationFn: () => apiFetch<MessagePage>(`${base}/messages?limit=100&before_seq=${messages[0]?.seq ?? 1}`),
@@ -302,8 +366,14 @@ export default function ChatPanel({
                       question={run.pending_question}
                       protocol={protocol.data}
                       disabled={!canWrite || protocol.isFetching}
+                      onAsk={() => {
+                        setDraft(`About this step (${run.pending_question?.kind ?? "question"}): `);
+                        requestAnimationFrame(() => composerRef.current?.focus());
+                      }}
                     />
-                  ) : undefined
+                  ) : (
+                    payloadNote(m.payload, ws ? (id) => ws.openPaper(id) : null)
+                  )
                 }
               />
             );
@@ -362,6 +432,7 @@ export default function ChatPanel({
           Message
         </label>
         <textarea
+          ref={composerRef}
           id="composer"
           className="input resize-none"
           rows={3}
@@ -381,7 +452,23 @@ export default function ChatPanel({
             }
           }}
         />
-        <div className="mt-2 flex justify-end">
+        <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+          {ws?.paperId && (
+            <span className="mr-auto text-2xs text-muted">Questions include the open paper.</span>
+          )}
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!canWrite || !draft.trim() || ask.isPending || !assist.data?.assistant_available}
+            title={
+              assist.data?.assistant_available
+                ? `Ask the AI assistant. ${assist.data.data_sent}`
+                : "No AI model is configured on this server."
+            }
+            onClick={() => ask.mutate(draft.trim())}
+          >
+            {ask.isPending ? "Asking…" : "Ask the assistant"}
+          </button>
           <button className="btn" disabled={!canWrite || !draft.trim()}>
             Send
           </button>

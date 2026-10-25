@@ -35,6 +35,8 @@ class RelevanceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     use_llm: bool = False
     force: bool = False
+    # Phase 12 "Reassess relevance": limit the run to these papers (always re-assessed).
+    paper_ids: list[uuid.UUID] | None = Field(default=None, max_length=200)
 
 
 class DecisionResult(BaseModel):

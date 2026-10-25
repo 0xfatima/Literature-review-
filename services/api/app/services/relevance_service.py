@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.core.errors import Conflict, RateLimited
+from app.core.errors import Conflict, NotFound, RateLimited
 from app.core.rate_limit import RateLimiter
 from app.db.models import Job, ModelRun, PaperRecord, Project, User
 from app.jobs import fsm
@@ -99,8 +99,17 @@ def start(
     *,
     use_llm: bool,
     force: bool,
+    paper_ids: list[uuid.UUID] | None = None,
 ) -> Job:
     protocol_service.require_writable(project)
+    if paper_ids:
+        found = set(
+            db.scalars(
+                select(PaperRecord.id).where(PaperRecord.project_id == project.id, PaperRecord.id.in_(paper_ids))
+            )
+        )
+        if len(found) != len(set(paper_ids)):
+            raise NotFound("Paper not found.")
     pv = protocol_service.approved(db, project)
     if pv is None:
         raise Conflict("Approve the review protocol before assessing relevance.", code="protocol_not_approved")
@@ -120,7 +129,13 @@ def start(
         user,
         job_type=JOB_TYPE,
         project_id=project.id,
-        payload={"protocol_version_id": str(pv.id), "use_llm": use_llm, "force": force, "nonce": str(uuid.uuid4())},
+        payload={
+            "protocol_version_id": str(pv.id),
+            "use_llm": use_llm,
+            "force": force or bool(paper_ids),
+            "paper_ids": [str(p) for p in paper_ids or []],
+            "nonce": str(uuid.uuid4()),
+        },
         request_key=None,
     )
     return job
@@ -134,10 +149,18 @@ def _paper_input(key: str, p: PaperRecord) -> ai.PaperInput:
 
 
 def _lexical(
-    db: Session, job: Job, project_id: uuid.UUID, pv_id: uuid.UUID, content: dict[str, Any], force: bool
+    db: Session,
+    job: Job,
+    project_id: uuid.UUID,
+    pv_id: uuid.UUID,
+    content: dict[str, Any],
+    force: bool,
+    only: list[uuid.UUID] | None = None,
 ) -> int:
     concepts = lex.concepts_from_protocol(content)
-    papers = repo.papers_needing(db, project_id, pv_id, "lexical", lex.METHOD_VERSION, force=force, limit=None)
+    papers = repo.papers_needing(
+        db, project_id, pv_id, "lexical", lex.METHOD_VERSION, force=force, limit=None, only=only
+    )
     for i, p in enumerate(papers, start=1):
         a = lex.assess({"title": p.title, "abstract": p.abstract, "keywords": p.keywords}, concepts)
         repo.upsert_assessment(
@@ -196,10 +219,18 @@ def _llm(
     content: dict[str, Any],
     force: bool,
     deadline: float,
+    only: list[uuid.UUID] | None = None,
 ) -> dict[str, Any]:
     protocol = ai.protocol_input(content)
     todo = repo.papers_needing(
-        db, project_id, pv_id, "llm", ai.PROMPT_VERSION, force=force, limit=max(1, settings.llm_max_papers_per_job)
+        db,
+        project_id,
+        pv_id,
+        "llm",
+        ai.PROMPT_VERSION,
+        force=force,
+        limit=max(1, settings.llm_max_papers_per_job),
+        only=only,
     )
     size = max(1, min(settings.llm_batch_size, 25))
     assessed = failed = 0
@@ -322,14 +353,15 @@ def execute(db: Session, job: Job, settings: Settings, *, gateway: LLMGateway | 
     deadline = time.monotonic() + settings.relevance_job_budget_s
     content = protocol_service.to_content(pv)
     force = bool(payload.get("force"))
-    scored = _lexical(db, job, project.id, pv.id, content, force)
+    only = [uuid.UUID(p) for p in payload.get("paper_ids") or []] or None
+    scored = _lexical(db, job, project.id, pv.id, content, force, only)
     result: dict[str, Any] = {"lexical_scored": scored, "protocol_version": pv.version}
     if payload.get("use_llm"):
         gw = gateway or build_gateway(settings)
         if not gw.available:
             result.update(llm_stop_reason="not_configured")
         else:
-            result.update(_llm(db, job, settings, gw, project.id, pv.id, content, force, deadline))
+            result.update(_llm(db, job, settings, gw, project.id, pv.id, content, force, deadline, only))
     stop = result.get("llm_stop_reason")
     result["message"] = STOP_MESSAGES.get(str(stop)) if stop else None
     audit_service.record(

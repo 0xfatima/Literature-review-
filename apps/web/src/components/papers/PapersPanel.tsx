@@ -1,6 +1,7 @@
 "use client";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { useWorkspace } from "@/components/workspace/WorkspaceContext";
 import { apiFetch } from "@/lib/api";
 import { MATCH_BASIS_LABELS, doiUrl, fmtDate } from "@/lib/search";
 import type { AccessStatus, PaperBrief, PaperDetail, PaperList } from "@/lib/types";
@@ -66,7 +67,7 @@ function Identifiers({ p }: { p: PaperBrief }) {
   );
 }
 
-function PaperFullText({ projectId, paper }: { projectId: string; paper: PaperDetail }) {
+export function PaperFullText({ projectId, paper }: { projectId: string; paper: PaperDetail }) {
   const refresh = useRefreshDocuments(projectId);
   const summary = useDocumentSummary(projectId);
   const uploader = useUploader(
@@ -227,6 +228,7 @@ export default function PapersPanel({
   const [sort, setSort] = useState("recent");
   const [offset, setOffset] = useState(0);
   const [open, setOpen] = useState<string | null>(null);
+  const ws = useWorkspace();
 
   const params = new URLSearchParams({ sort, offset: String(offset), limit: String(PAGE) });
   if (applied) params.set("q", applied);
@@ -367,6 +369,16 @@ export default function PapersPanel({
               <span className="text-xs text-muted">
                 Found in {p.providers.join(", ")} ({p.source_count} record{p.source_count === 1 ? "" : "s"})
               </span>
+              {ws && (
+                <button
+                  type="button"
+                  className="btn-ghost text-xs"
+                  aria-pressed={ws.paperId === p.id}
+                  onClick={() => ws.openPaper(ws.paperId === p.id ? null : p.id)}
+                >
+                  {ws.paperId === p.id ? "Close inspector" : "Inspect paper"}
+                </button>
+              )}
             </div>
             <div className="mt-1">
               <Identifiers p={p} />

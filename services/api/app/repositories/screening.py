@@ -43,10 +43,21 @@ def upsert_assessment(db: Session, values: dict[str, Any]) -> None:
 
 
 def papers_needing(
-    db: Session, project_id: uuid.UUID, pv_id: uuid.UUID, method: str, version: str, *, force: bool, limit: int | None
+    db: Session,
+    project_id: uuid.UUID,
+    pv_id: uuid.UUID,
+    method: str,
+    version: str,
+    *,
+    force: bool,
+    limit: int | None,
+    only: list[uuid.UUID] | None = None,
 ) -> list[PaperRecord]:
-    """Papers without an assessment of this method version (all papers when force). LLM order: best lexical first."""
+    """Papers without an assessment of this method version (all papers when force), optionally only `only`.
+    LLM order: best lexical first."""
     q = select(PaperRecord).where(PaperRecord.project_id == project_id)
+    if only:
+        q = q.where(PaperRecord.id.in_(only))
     if not force:
         done = select(RelevanceAssessment.paper_id).where(
             RelevanceAssessment.project_id == project_id,
