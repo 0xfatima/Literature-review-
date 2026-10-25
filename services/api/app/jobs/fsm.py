@@ -62,6 +62,10 @@ JOB_TYPES: dict[str, dict[str, Any]] = {
     "document.process": {"cancellable": False, "max_attempts": 2},
     # AI evidence extraction from included papers. Cancellable between papers/requests; each paper commits atomically.
     "extraction.run": {"cancellable": True, "max_attempts": 2},
+    # AI appraisal suggestions (never judgements). Cancellable between papers.
+    "appraisal.suggest": {"cancellable": True, "max_attempts": 2},
+    # Drafts one synthesis version (deterministic statements + optional AI). Not cancellable: it commits once.
+    "synthesis.draft": {"cancellable": False, "max_attempts": 2},
 }
 
 

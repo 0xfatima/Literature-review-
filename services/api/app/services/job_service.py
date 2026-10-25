@@ -28,6 +28,8 @@ TASK_FOR_TYPE = {
     "relevance.assess": "relevance.assess",
     "document.process": "document.process",
     "extraction.run": "extraction.run",
+    "appraisal.suggest": "appraisal.suggest",
+    "synthesis.draft": "synthesis.draft",
 }
 
 

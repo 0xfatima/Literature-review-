@@ -10,8 +10,10 @@ import SearchPanel from "@/components/search/SearchPanel";
 import PapersPanel from "@/components/papers/PapersPanel";
 import DocumentsPanel from "@/components/documents/DocumentsPanel";
 import PrismaFlowPanel from "@/components/prisma/PrismaFlowPanel";
+import AppraisalPanel from "@/components/appraisal/AppraisalPanel";
 import EvidenceTablePanel from "@/components/extraction/EvidenceTablePanel";
 import ExtractionPanel from "@/components/extraction/ExtractionPanel";
+import SynthesisPanel from "@/components/synthesis/SynthesisPanel";
 import ScreeningPanel from "@/components/screening/ScreeningPanel";
 import { useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
 import { WORKFLOW_STAGES, statusText } from "@/lib/protocol";
@@ -118,6 +120,8 @@ export const TABS = [
   { id: "flow", label: "PRISMA Flow" },
   { id: "extraction", label: "Extraction" },
   { id: "tables", label: "Tables" },
+  { id: "appraisal", label: "Appraisal" },
+  { id: "synthesis", label: "Synthesis" },
   { id: "artifacts", label: "Artifacts" },
 ] as const;
 export type TabId = (typeof TABS)[number]["id"];
@@ -331,6 +335,12 @@ export default function Workspace({
         )}
         {tab === "tables" && (
           <EvidenceTablePanel projectId={project.id} canWrite={project.archived_at === null} />
+        )}
+        {tab === "appraisal" && (
+          <AppraisalPanel projectId={project.id} canWrite={project.archived_at === null} />
+        )}
+        {tab === "synthesis" && (
+          <SynthesisPanel projectId={project.id} canWrite={project.archived_at === null} />
         )}
         {tab === "artifacts" && (
           <Empty title="No artifacts yet">

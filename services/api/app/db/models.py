@@ -3,7 +3,8 @@ protocol_versions, protocol_questions, protocol_criteria, workflow_runs, workflo
 search_runs, search_queries, paper_records, paper_source_records (Phase 4);
 model_runs, relevance_assessments, screening_decisions, screening_states (Phase 5);
 paper_documents, document_pages (Phase 6); studies, PRISMA events, extraction schemas and evidence items (Phases 7-8);
-evidence_item_revisions, evidence_outputs, evidence_output_items (Phase 9).
+evidence_item_revisions, evidence_outputs, evidence_output_items (Phase 9);
+appraisal_records, appraisal_revisions, synthesis_versions (Phase 10).
 
 Password-reset tokens are intentionally absent (recovery is deferred; see ADR amendment A8).
 """
@@ -1045,7 +1046,7 @@ class RecordStatusEvent(Base):
 EVIDENCE_STATUSES = ("pending", "found", "not_located", "ambiguous", "unavailable", "not_applicable")
 EVIDENCE_ORIGINS = ("manual", "ai", "system")  # system = deterministic (e.g. no full text)
 EVIDENCE_REVIEW_STATUSES = ("unreviewed", "approved", "edited")
-EVIDENCE_OUTPUT_KINDS = ("csv_export",)
+EVIDENCE_OUTPUT_KINDS = ("csv_export", "synthesis")
 FIELD_TYPES = ("text", "number", "choice", "multi_choice", "boolean", "date")
 
 
@@ -1243,4 +1244,112 @@ class LlmConsent(Base):
             unique=True,
             postgresql_where=text("revoked_at IS NULL"),
         ),
+    )
+
+
+# ---------- Phase 10: critical appraisal and evidence synthesis ----------
+
+APPRAISAL_STATUSES = ("draft", "approved")
+SYNTHESIS_STATUSES = ("draft", "accepted", "superseded")
+
+
+class AppraisalRecord(Base):
+    """Critical appraisal of one paper with one design-specific framework (app/appraisal/frameworks.py).
+    `answers` holds, per domain, the reviewer's judgement + justification + optional source excerpt, and SEPARATELY the
+    AI suggestion (`ai_suggestion`), which never counts as a judgement until a reviewer decides. No numeric score."""
+
+    __tablename__ = "appraisal_records"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    paper_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("paper_records.id", ondelete="CASCADE"), nullable=False
+    )
+    framework_key: Mapped[str] = mapped_column(String(40), nullable=False)
+    framework_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(12), nullable=False, server_default="draft")
+    answers: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    suggested_overall: Mapped[str | None] = mapped_column(String(24))
+    overall_judgement: Mapped[str | None] = mapped_column(String(24))
+    overall_justification: Mapped[str | None] = mapped_column(Text)
+    reviewer_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    created_at: Mapped[datetime] = now_col()
+    updated_at: Mapped[datetime] = now_col()
+    __table_args__ = (
+        UniqueConstraint("paper_id", "framework_key", name="uq_appraisal_records_paper_framework"),
+        CheckConstraint("status in " + _in(APPRAISAL_STATUSES), name="status"),
+        Index("ix_appraisal_records_project", "project_id"),
+    )
+
+
+class AppraisalRevision(Base):
+    """Append-only history of an appraisal record (DB trigger), like evidence_item_revisions."""
+
+    __tablename__ = "appraisal_revisions"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    appraisal_record_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("appraisal_records.id", ondelete="CASCADE"), nullable=False
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    before: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    after: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL")
+    )
+    reason: Mapped[str | None] = mapped_column(Text)
+    at: Mapped[datetime] = now_col()
+    __table_args__ = (
+        UniqueConstraint("appraisal_record_id", "revision", name="uq_appraisal_revisions_record_revision"),
+        Index("ix_appraisal_revisions_project", "project_id"),
+    )
+
+
+class SynthesisVersion(Base):
+    """A versioned narrative synthesis. `statements` cite evidence items (with the revision used) and approved
+    appraisals; each carries a certainty label computed by deterministic rules, never above what the citations
+    support. Accepted versions are immutable; revising creates a new draft. No statistical pooling is performed."""
+
+    __tablename__ = "synthesis_versions"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    extraction_schema_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("extraction_schemas.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(12), nullable=False, server_default="draft")
+    scope: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    statements: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    meta_analysis: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    accepted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    accept_note: Mapped[str | None] = mapped_column(Text)
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("synthesis_versions.id", ondelete="SET NULL")
+    )
+    evidence_output_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("evidence_outputs.id", ondelete="SET NULL")
+    )
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL")
+    )
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    created_at: Mapped[datetime] = now_col()
+    updated_at: Mapped[datetime] = now_col()
+    __table_args__ = (
+        UniqueConstraint("project_id", "version", name="uq_synthesis_versions_project_version"),
+        CheckConstraint("status in " + _in(SYNTHESIS_STATUSES), name="status"),
+        Index("ix_synthesis_versions_project", "project_id"),
     )

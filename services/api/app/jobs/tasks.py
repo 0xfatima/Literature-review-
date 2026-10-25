@@ -227,6 +227,68 @@ def extraction_run(job_id: str) -> str:
         reset_correlation_id(token)
 
 
+@celery_app.task(name="appraisal.suggest")
+def appraisal_suggest(job_id: str) -> str:
+    """AI appraisal suggestions. All logic is in app.appraisal.service."""
+    from app.appraisal import service
+
+    configure_logging(get_settings().log_level)
+    token = set_correlation_id(new_correlation_id())
+    try:
+        jid = uuid.UUID(job_id)
+        with get_sessionmaker()() as db:
+            if not repo.claim(db, jid):
+                db.rollback()
+                log.info("duplicate/late delivery ignored", extra={"job_id": job_id})
+                return "ignored"
+            db.commit()
+            job = repo.get_by_id(db, jid)
+            if job is None:
+                return "ignored"
+            try:
+                return service.execute_suggestions(db, job, get_settings())
+            except Exception as e:  # noqa: BLE001  end visibly; work committed so far is kept
+                db.rollback()
+                log.exception("appraisal.suggest job failed", extra={"job_id": job_id})
+                repo.finish(
+                    db, jid, fsm.RUNNING, fsm.FAILED, error=f"Appraisal suggestions failed ({type(e).__name__})."
+                )
+                db.commit()
+                return "failed"
+    finally:
+        reset_correlation_id(token)
+
+
+@celery_app.task(name="synthesis.draft")
+def synthesis_draft(job_id: str) -> str:
+    """Draft a synthesis version. All logic is in app.synthesis.service."""
+    from app.synthesis import service
+
+    configure_logging(get_settings().log_level)
+    token = set_correlation_id(new_correlation_id())
+    try:
+        jid = uuid.UUID(job_id)
+        with get_sessionmaker()() as db:
+            if not repo.claim(db, jid):
+                db.rollback()
+                log.info("duplicate/late delivery ignored", extra={"job_id": job_id})
+                return "ignored"
+            db.commit()
+            job = repo.get_by_id(db, jid)
+            if job is None:
+                return "ignored"
+            try:
+                return service.execute_draft(db, job, get_settings())
+            except Exception as e:  # noqa: BLE001  end visibly; work committed so far is kept
+                db.rollback()
+                log.exception("synthesis.draft job failed", extra={"job_id": job_id})
+                repo.finish(db, jid, fsm.RUNNING, fsm.FAILED, error=f"Synthesis draft failed ({type(e).__name__}).")
+                db.commit()
+                return "failed"
+    finally:
+        reset_correlation_id(token)
+
+
 @celery_app.task(name="system.purge_documents")
 def purge_documents() -> dict[str, int]:
     """Retention and orphan sweep for stored files (scheduled by beat)."""

@@ -832,3 +832,143 @@ export interface SchemaCoverage {
   by_question: Record<string, { question_id: string; fields: FieldCoverage[] }>;
   unmapped_fields: FieldCoverage[];
 }
+
+// ---------- Phase 10: appraisal and synthesis ----------
+export interface AppraisalFramework {
+  key: string;
+  version: string;
+  label: string;
+  kind: "risk_of_bias" | "checklist";
+  designs: string[];
+  based_on: string;
+  reference_url: string;
+  judgements: string[];
+  overall_options: string[];
+  overall_rule: string;
+  domains: { key: string; label: string; prompt: string }[];
+}
+export interface AiAppraisalSuggestion {
+  judgement: string;
+  justification: string | null;
+  excerpt: string | null;
+  document_page_id: string | null;
+  page_no: number | null;
+  supported: boolean;
+  model_run_id: string | null;
+  prompt_version: string;
+}
+export interface AppraisalAnswer {
+  judgement?: string;
+  justification?: string;
+  excerpt?: string | null;
+  document_page_id?: string | null;
+  page_no?: number | null;
+  decided_by?: string;
+  decided_at?: string;
+  ai_suggestion?: AiAppraisalSuggestion | null;
+}
+export interface AppraisalRecord {
+  id: string;
+  paper_id: string;
+  framework_key: string;
+  framework_version: string;
+  status: "draft" | "approved";
+  answers: Record<string, AppraisalAnswer>;
+  suggested_overall: string | null;
+  overall_judgement: string | null;
+  overall_justification: string | null;
+  domains_total: number;
+  domains_judged: number;
+  ai_suggestions: number;
+  approved_at: string | null;
+  row_version: number;
+}
+export interface AppraisalPaper {
+  paper: { id: string; title: string; year: number | null; publication_type: string | null };
+  design_hint: string | null;
+  suggested_framework: string | null;
+  records: AppraisalRecord[];
+}
+export interface AppraisalOverview {
+  frameworks: AppraisalFramework[];
+  papers: AppraisalPaper[];
+}
+export type Certainty = "supported" | "uncertain" | "conflicting" | "insufficient";
+export type StatementKind =
+  "finding" | "agreement" | "disagreement" | "gap" | "limitation" | "method_difference" | "conclusion";
+export interface SynthesisStatement {
+  id: string;
+  kind: StatementKind;
+  text: string;
+  group: string | null;
+  citations: { evidence_item_id: string; revision: number; paper_id: string; field_key: string }[];
+  appraisals: { paper_id: string; record_id: string; framework_key: string; overall: string | null }[];
+  claimed_certainty: Certainty | null;
+  certainty: Certainty;
+  certainty_reasons: string[];
+  origin: "system" | "ai" | "manual";
+  review: "unreviewed" | "accepted" | "rejected" | "edited";
+  warnings: ValidationWarning[];
+  stale: boolean;
+  stale_reasons: string[];
+}
+export interface SynthesisVersion {
+  id: string;
+  version: number;
+  status: "draft" | "accepted" | "superseded";
+  extraction_schema_id: string;
+  scope: { group_by?: string | null };
+  statements: SynthesisStatement[];
+  review_counts: Record<string, number>;
+  meta_analysis: { in_scope: boolean; note: string };
+  accepted_at: string | null;
+  accept_note: string | null;
+  supersedes_id: string | null;
+  row_version: number;
+  created_at: string;
+}
+export interface FieldSignal {
+  field_key: string;
+  label: string;
+  type: string;
+  pattern: "no_evidence" | "single_study" | "agreement" | "disagreement" | "varied";
+  studies_with_value: number;
+  values: { value: string; paper_ids: string[]; item_ids: string[] }[];
+  gaps: Record<"not_located" | "unavailable" | "ambiguous" | "not_reviewed", string[]>;
+  range?: { min: number; max: number; n: number };
+}
+export interface ComparisonStudy {
+  paper_id: string;
+  title: string;
+  year: number | null;
+  appraisal: { record_id: string; framework_key: string; overall: string | null } | null;
+  cells: Record<
+    string,
+    {
+      item_id: string;
+      status: EvidenceStatus;
+      value: unknown;
+      excerpt: string | null;
+      page_no: number | null;
+      review_status: string;
+      reviewed: boolean;
+    }
+  >;
+}
+export interface Comparison {
+  schema: { id: string; version: number; fields: FieldDefinition[] } | null;
+  group_by?: string | null;
+  groups: { key: string; label: string; paper_ids: string[]; fields: FieldSignal[] }[];
+  studies: ComparisonStudy[];
+  method_differences?: { designs: Record<string, string[]>; mixed_designs: boolean };
+  limitations?: { serious_appraisal_concerns: string[]; not_appraised: string[] };
+  unreviewed_values?: number;
+  meta_analysis: { in_scope: boolean; note: string };
+  group_options: { value: string; label: string }[];
+}
+export interface AiJobStatus {
+  consent: ConsentStatus;
+  active_job_id: string | null;
+  last_result: (Record<string, unknown> & { stop_reason?: string | null; blocked_reason?: string }) | null;
+  last_error: string | null;
+}
