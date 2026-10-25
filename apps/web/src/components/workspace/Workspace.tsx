@@ -17,6 +17,7 @@ import ReportPanel from "@/components/report/ReportPanel";
 import SynthesisPanel from "@/components/synthesis/SynthesisPanel";
 import ScreeningPanel from "@/components/screening/ScreeningPanel";
 import PaperInspector from "@/components/papers/PaperInspector";
+import AutopilotPanel from "@/components/pipeline/AutopilotPanel";
 import StageNavigator from "@/components/workspace/StageNavigator";
 import { useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
 import { WORKFLOW_STAGES, statusText } from "@/lib/protocol";
@@ -115,6 +116,7 @@ function WorkflowSection({
 
 export const TABS = [
   { id: "status", label: "Review status" },
+  { id: "autopilot", label: "Pipeline" },
   { id: "protocol", label: "Protocol" },
   { id: "search", label: "Search" },
   { id: "screening", label: "Screening" },
@@ -318,6 +320,10 @@ export default function Workspace({
                 </button>
               </section>
             </div>,
+          )}
+          {panel(
+            "autopilot",
+            <AutopilotPanel projectId={project.id} canWrite={project.archived_at === null} />,
           )}
           {panel(
             "protocol",

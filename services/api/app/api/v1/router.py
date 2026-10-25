@@ -8,6 +8,7 @@ from app.api.v1 import (
     documents,
     extraction,
     jobs,
+    pipeline,
     prisma,
     projects,
     protocol,
@@ -32,3 +33,4 @@ api_router.include_router(appraisal.router)
 api_router.include_router(synthesis.router)
 api_router.include_router(reports.router)
 api_router.include_router(assist.router)
+api_router.include_router(pipeline.router)

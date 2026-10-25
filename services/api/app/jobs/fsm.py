@@ -66,6 +66,8 @@ JOB_TYPES: dict[str, dict[str, Any]] = {
     "appraisal.suggest": {"cancellable": True, "max_attempts": 2},
     # Drafts one synthesis version (deterministic statements + optional AI). Not cancellable: it commits once.
     "synthesis.draft": {"cancellable": False, "max_attempts": 2},
+    # Advances the review pipeline graph by one or more checkpointed steps (Phase 13). Re-delivery is safe.
+    "pipeline.advance": {"cancellable": False, "max_attempts": 3},
 }
 
 

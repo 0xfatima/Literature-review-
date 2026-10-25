@@ -100,6 +100,7 @@ def start(
     use_llm: bool,
     force: bool,
     paper_ids: list[uuid.UUID] | None = None,
+    request_key: str | None = None,
 ) -> Job:
     protocol_service.require_writable(project)
     if paper_ids:
@@ -134,9 +135,9 @@ def start(
             "use_llm": use_llm,
             "force": force or bool(paper_ids),
             "paper_ids": [str(p) for p in paper_ids or []],
-            "nonce": str(uuid.uuid4()),
+            "nonce": request_key or str(uuid.uuid4()),
         },
-        request_key=None,
+        request_key=request_key,
     )
     return job
 
@@ -358,6 +359,10 @@ def execute(db: Session, job: Job, settings: Settings, *, gateway: LLMGateway | 
     result: dict[str, Any] = {"lexical_scored": scored, "protocol_version": pv.version}
     if payload.get("use_llm"):
         gw = gateway or build_gateway(settings)
+        if gw.budget_guard is None:
+            from app.services.llm_jobs import token_guard
+
+            gw.budget_guard = token_guard(db, project.id, settings.llm_daily_token_budget)
         if not gw.available:
             result.update(llm_stop_reason="not_configured")
         else:

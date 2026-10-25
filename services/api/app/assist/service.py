@@ -293,6 +293,10 @@ def ask(
     user_msg, _ = conversation_service.post_user_message(
         db, user, project, conversation_id, content=question, client_message_id=None
     )
+    if gw.budget_guard is None:
+        from app.services.llm_jobs import token_guard
+
+        gw.budget_guard = token_guard(db, project.id, settings.llm_daily_token_budget)
     prompt = f"Context:\n{_context(db, project, paper)}\n\nUser question: {question}"
     started = time.monotonic()
     try:

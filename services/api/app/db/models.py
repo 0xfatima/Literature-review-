@@ -5,7 +5,8 @@ model_runs, relevance_assessments, screening_decisions, screening_states (Phase 
 paper_documents, document_pages (Phase 6); studies, PRISMA events, extraction schemas and evidence items (Phases 7-8);
 evidence_item_revisions, evidence_outputs, evidence_output_items (Phase 9);
 appraisal_records, appraisal_revisions, synthesis_versions (Phase 10);
-draft_versions, claim_evidence_links, report_exports (Phase 11).
+draft_versions, claim_evidence_links, report_exports (Phase 11);
+pipeline_runs, pipeline_events, stage_invalidations (Phase 13).
 
 Password-reset tokens are intentionally absent (recovery is deferred; see ADR amendment A8).
 """
@@ -1454,4 +1455,104 @@ class ReportExport(Base):
     __table_args__ = (
         CheckConstraint("format in " + _in(EXPORT_FORMATS), name="format"),
         Index("ix_report_exports_project_created", "project_id", "created_at"),
+    )
+
+
+# ---------- Phase 13: controlled autonomy (pipeline orchestration) ----------
+
+PIPELINE_STATUSES = ("queued", "running", "waiting", "paused", "completed", "cancelled", "failed", "superseded")
+PIPELINE_ACTIVE = ("queued", "running", "waiting", "paused")
+INVALIDATION_STATUSES = ("open", "resolved", "dismissed")
+
+
+class PipelineRun(Base):
+    """One generation of the end-to-end review pipeline (LangGraph thread `thread_id`, checkpoints in
+    lg_checkpoints). A rerun from an earlier stage is a NEW run that supersedes this one, so earlier runs, their
+    outputs and their events stay as history. `pending` mirrors what the graph is waiting for (an approval, a job,
+    a backoff)."""
+
+    __tablename__ = "pipeline_runs"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    thread_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    graph_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="queued")
+    stage: Mapped[str | None] = mapped_column(String(32))
+    start_stage: Mapped[str] = mapped_column(String(32), nullable=False, server_default="protocol")
+    autonomy: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    pending: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    outputs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    counters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    protocol_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("protocol_versions.id", ondelete="SET NULL")
+    )
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pipeline_runs.id", ondelete="SET NULL")
+    )
+    rerun_reason: Mapped[str | None] = mapped_column(Text)
+    error_summary: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    created_at: Mapped[datetime] = now_col()
+    updated_at: Mapped[datetime] = now_col()
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("status in " + _in(PIPELINE_STATUSES), name="status"),
+        Index("ix_pipeline_runs_project_created", "project_id", "created_at"),
+        Index(
+            "uq_pipeline_runs_one_active",
+            "project_id",
+            unique=True,
+            postgresql_where=text("status in ('queued','running','waiting','paused')"),
+        ),
+    )
+
+
+class PipelineEvent(Base):
+    """Append-only audit trail of a pipeline run (DB trigger): node starts/completions, approvals requested and
+    given, jobs dispatched and finished, technical retries, budget stops, invalidations, reruns, recoveries."""
+
+    __tablename__ = "pipeline_events"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pipeline_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    stage: Mapped[str | None] = mapped_column(String(32))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = now_col()
+    __table_args__ = (Index("ix_pipeline_events_run_created", "run_id", "created_at"),)
+
+
+class StageInvalidation(Base):
+    """A derived output that an upstream change made questionable (e.g. screening decisions after the criteria
+    changed). Never deletes anything: it marks the stage for review/rerun until resolved or dismissed with a reason."""
+
+    __tablename__ = "stage_invalidations"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    pipeline_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pipeline_runs.id", ondelete="SET NULL")
+    )
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    cause: Mapped[str] = mapped_column(String(32), nullable=False)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(String(12), nullable=False, server_default="open")
+    resolution: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = now_col()
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("status in " + _in(INVALIDATION_STATUSES), name="status"),
+        Index("ix_stage_invalidations_project_status", "project_id", "status"),
     )

@@ -595,6 +595,7 @@ def start_draft(
     user: User,
     project: Project,
     body: dict[str, Any],
+    request_key: str | None = None,
 ) -> Job:
     protocol_service.require_writable(project)
     sid = body.get("schema_id")
@@ -625,9 +626,9 @@ def start_draft(
             "schema_id": str(schema.id),
             "group_by": group_by,
             "use_ai": bool(body.get("use_ai")),
-            "nonce": str(uuid.uuid4()),
+            "nonce": request_key or str(uuid.uuid4()),
         },
-        request_key=None,
+        request_key=request_key,
     )
     return job
 

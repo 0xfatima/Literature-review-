@@ -58,7 +58,16 @@ def system_ping(job_id: str) -> str:
 def sweep_jobs() -> dict[str, int]:
     configure_logging(get_settings().log_level)
     with get_sessionmaker()() as db:
-        return job_service.sweep(db, get_settings(), send_task)
+        out = job_service.sweep(db, get_settings(), send_task)
+    with get_sessionmaker()() as db:  # Phase 13: resume pipeline runs whose awaited job/backoff is over
+        from app.pipeline import service as pipeline_service
+
+        try:
+            out["pipelines_woken"] = pipeline_service.wake(db, get_settings(), send_task)
+        except Exception:  # noqa: BLE001  the job sweep result must still be returned
+            db.rollback()
+            log.exception("pipeline wake failed")
+    return out
 
 
 @celery_app.task(name="workflow.advance")
@@ -285,6 +294,44 @@ def synthesis_draft(job_id: str) -> str:
                 repo.finish(db, jid, fsm.RUNNING, fsm.FAILED, error=f"Synthesis draft failed ({type(e).__name__}).")
                 db.commit()
                 return "failed"
+    finally:
+        reset_correlation_id(token)
+
+
+@celery_app.task(name="pipeline.advance")
+def pipeline_advance(job_id: str) -> str:
+    """Advance the review pipeline graph. All logic is in app.pipeline.runtime."""
+    from app.db.models import PipelineRun
+    from app.pipeline import runtime as pipeline_runtime
+
+    configure_logging(get_settings().log_level)
+    token = set_correlation_id(new_correlation_id())
+    try:
+        jid = uuid.UUID(job_id)
+        with get_sessionmaker()() as db:
+            if not repo.claim(db, jid):
+                db.rollback()
+                return "ignored"
+            db.commit()
+            job = repo.get_by_id(db, jid)
+            if job is None:
+                return "ignored"
+            try:
+                outcome = pipeline_runtime.advance(db, job)
+            except Exception as e:  # noqa: BLE001  end visibly; the checkpoint keeps every completed step
+                db.rollback()
+                log.exception("pipeline step failed", extra={"job_id": job_id})
+                run = db.get(PipelineRun, uuid.UUID(str((job.input or {}).get("run_id"))))
+                if run is not None and run.status == "running":
+                    run.status = "failed"
+                    run.error_summary = f"A pipeline step failed ({type(e).__name__}). Recover to continue."
+                    run.row_version += 1
+                repo.finish(db, jid, fsm.RUNNING, fsm.FAILED, error=f"Pipeline step failed ({type(e).__name__}).")
+                db.commit()
+                return "failed"
+            repo.finish(db, jid, fsm.RUNNING, fsm.SUCCEEDED, result={"run_status": outcome})
+            db.commit()
+            return outcome
     finally:
         reset_correlation_id(token)
 
