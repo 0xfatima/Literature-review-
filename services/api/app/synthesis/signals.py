@@ -229,7 +229,8 @@ def compute_certainty(
     cited_numbers: set[str] = set()
     for _, c in cited:
         cited_numbers |= numbers_in(value_text(c.value)) | numbers_in(c.excerpt or "")
-    missing = sorted(numbers_in(text) - cited_numbers)
+    numeric_text = re.sub(r"\(\d+\)", "", text)
+    missing = sorted(numbers_in(numeric_text) - cited_numbers)
     if missing:
         level = "uncertain"
         reasons.append(f"Number(s) {', '.join(missing)} in the text are not in the cited evidence.")
