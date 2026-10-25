@@ -972,3 +972,118 @@ export interface AiJobStatus {
   last_result: (Record<string, unknown> & { stop_reason?: string | null; blocked_reason?: string }) | null;
   last_error: string | null;
 }
+
+// ---------- Phase 11: report drafts ----------
+export type ReportBlock =
+  | {
+      id: string;
+      type: "paragraph";
+      text: string;
+      origin: "generated" | "edited";
+      source: string;
+    }
+  | {
+      id: string;
+      type: "statement";
+      text: string;
+      origin: "generated" | "edited";
+      source: string;
+      certainty: Certainty | null;
+      kind?: StatementKind;
+      evidence: { item_id: string; revision: number; paper_id: string; field_key: string }[];
+    }
+  | {
+      id: string;
+      type: "table";
+      source: string;
+      table: { key: string; caption: string; columns: string[]; rows: (string | number | null)[][] };
+    }
+  | { id: string; type: "references" };
+export interface ReportSection {
+  key: string;
+  title: string;
+  required: boolean;
+  blocks: ReportBlock[];
+  verified_by: string | null;
+  verified_at: string | null;
+}
+export interface ReportIssue {
+  code: string;
+  severity: "error" | "warning";
+  section: string;
+  block_id: string | null;
+  message: string;
+}
+export interface ReportSummary {
+  errors: number;
+  warnings: number;
+  sections_total: number;
+  sections_verified: number;
+  label: string;
+  publication_ready: false;
+}
+export interface ReportReference {
+  key: string;
+  paper_id: string;
+  formatted: string;
+  doi: string | null;
+  pmid: string | null;
+  year: number | null;
+  title: string;
+}
+export interface ReportVersion {
+  id: string;
+  version: number;
+  status: "current" | "superseded";
+  title: string;
+  sections: ReportSection[];
+  references: ReportReference[];
+  review_state: { fingerprint: string; generated_at: string; prisma: Record<string, unknown> };
+  data_changed_since_generation: boolean;
+  validation: { issues: ReportIssue[]; summary: ReportSummary };
+  change_summary: string | null;
+  supersedes_id: string | null;
+  created_at: string;
+}
+export interface ReportVersionSummary {
+  id: string;
+  version: number;
+  status: "current" | "superseded";
+  title: string;
+  change_summary: string | null;
+  summary: ReportSummary | null;
+  created_at: string;
+}
+export interface ReportExportRecord {
+  id: string;
+  format: string;
+  filename: string;
+  sha256: string;
+  byte_size: number;
+  validation_summary: ReportSummary;
+  data_changed_since_draft: boolean;
+  created_at: string;
+}
+export interface ClaimTrace {
+  claim_id: string;
+  source_explanation: string | null;
+  facts: Record<string, unknown> | null;
+  references: {
+    key: string;
+    paper_id: string;
+    formatted: string;
+    doi: string | null;
+    pmid: string | null;
+    is_retracted: boolean | null;
+  }[];
+  evidence: {
+    evidence_item_id: string;
+    paper_id: string;
+    field_key: string;
+    status: string;
+    value: unknown;
+    excerpt: string | null;
+    page_no: number | null;
+    changed_since_cited: boolean;
+  }[];
+}

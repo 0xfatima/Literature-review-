@@ -10,6 +10,7 @@ from app.api.v1 import (
     prisma,
     projects,
     protocol,
+    reports,
     screening,
     search,
     synthesis,
@@ -28,3 +29,4 @@ api_router.include_router(prisma.router)
 api_router.include_router(extraction.router)
 api_router.include_router(appraisal.router)
 api_router.include_router(synthesis.router)
+api_router.include_router(reports.router)

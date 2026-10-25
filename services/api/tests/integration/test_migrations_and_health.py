@@ -35,6 +35,10 @@ EXPECTED = {
     "appraisal_records",
     "appraisal_revisions",
     "synthesis_versions",
+    # Phase 11 (0010)
+    "draft_versions",
+    "claim_evidence_links",
+    "report_exports",
 }
 
 

@@ -13,6 +13,7 @@ import PrismaFlowPanel from "@/components/prisma/PrismaFlowPanel";
 import AppraisalPanel from "@/components/appraisal/AppraisalPanel";
 import EvidenceTablePanel from "@/components/extraction/EvidenceTablePanel";
 import ExtractionPanel from "@/components/extraction/ExtractionPanel";
+import ReportPanel from "@/components/report/ReportPanel";
 import SynthesisPanel from "@/components/synthesis/SynthesisPanel";
 import ScreeningPanel from "@/components/screening/ScreeningPanel";
 import { useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
@@ -122,7 +123,7 @@ export const TABS = [
   { id: "tables", label: "Tables" },
   { id: "appraisal", label: "Appraisal" },
   { id: "synthesis", label: "Synthesis" },
-  { id: "artifacts", label: "Artifacts" },
+  { id: "report", label: "Report" },
 ] as const;
 export type TabId = (typeof TABS)[number]["id"];
 
@@ -160,15 +161,6 @@ function StageTrack({ status }: { status: string }) {
       {status === ATTENTION.id && (
         <p className="mt-2 text-sm text-danger">This project needs attention before it can continue.</p>
       )}
-    </div>
-  );
-}
-
-function Empty({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="max-w-prose py-10">
-      <h2 className="mb-2 text-base font-semibold">{title}</h2>
-      <div className="text-muted">{children}</div>
     </div>
   );
 }
@@ -342,11 +334,7 @@ export default function Workspace({
         {tab === "synthesis" && (
           <SynthesisPanel projectId={project.id} canWrite={project.archived_at === null} />
         )}
-        {tab === "artifacts" && (
-          <Empty title="No artifacts yet">
-            PRISMA diagrams, synthesis versions and draft exports are saved here as they are produced.
-          </Empty>
-        )}
+        {tab === "report" && <ReportPanel projectId={project.id} canWrite={project.archived_at === null} />}
       </div>
     </div>
   );
