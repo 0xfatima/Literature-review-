@@ -306,7 +306,9 @@ def decide(
         raise Conflict(
             "This record's decision was changed elsewhere. Reload to see the latest decision.", code="version_conflict"
         )
-    if st is not None and st.decision == decision and decision != "exclude":
+    # Same decision under the SAME protocol version is a no-op; under a newer version it is re-recorded, so a
+    # decision is never silently carried over a criteria change (Phase 13).
+    if st is not None and st.decision == decision and decision != "exclude" and st.protocol_version_id == pv.id:
         db.rollback()
         return {"decision_id": st.decision_id, "unchanged": True}
     d = _append(db, project, user, pv, paper_id, decision, reason, action="decide", batch_id=None)
@@ -351,8 +353,8 @@ def bulk(
     changed = 0
     for pid in ids:
         st = repo.state_for(db, pid)
-        if st is not None and st.decision == decision and decision != "exclude":
-            continue
+        if st is not None and st.decision == decision and decision != "exclude" and st.protocol_version_id == pv.id:
+            continue  # same decision under the same protocol version: nothing to record
         _append(db, project, user, pv, pid, decision, reason, action="bulk", batch_id=batch_id)
         changed += 1
     if changed:

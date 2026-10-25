@@ -30,11 +30,19 @@ TASK_FOR_TYPE = {
     "extraction.run": "extraction.run",
     "appraisal.suggest": "appraisal.suggest",
     "synthesis.draft": "synthesis.draft",
+    "pipeline.advance": "pipeline.advance",
 }
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def get_by_request_key(
+    db: Session, owner_id: uuid.UUID, request_key: str
+) -> Job | None:
+    """Return the job associated with an owner's idempotency key, if any."""
+    return repo.get_by_request_key(db, owner_id, request_key)
 
 
 def enqueue(
@@ -180,6 +188,19 @@ def sweep(db: Session, settings: Settings, dispatch: Dispatcher, now: datetime |
                         error_summary="The background worker stopped repeatedly during this step. Restart the "
                         "workflow to continue from the saved protocol.",
                         row_version=WorkflowRun.row_version + 1,
+                    )
+                )
+            if job.type == "pipeline.advance" and (job.input or {}).get("run_id"):  # visible, recoverable failure
+                from app.db.models import PipelineRun
+
+                db.execute(
+                    update(PipelineRun)
+                    .where(PipelineRun.id == uuid.UUID(str(job.input["run_id"])), PipelineRun.status == "running")
+                    .values(
+                        status="failed",
+                        error_summary="The background worker stopped repeatedly while advancing "
+                        "the pipeline. Recover it to continue from the last checkpoint.",
+                        row_version=PipelineRun.row_version + 1,
                     )
                 )
             if job.type == "document.process":  # a document must not stay "processing" after its job gave up

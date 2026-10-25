@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     rate_limit_relevance_per_hour: int = 20
     rate_limit_extraction_per_hour: int = 10
     rate_limit_assistant_per_hour: int = 30
+    # Phase 13 controlled autonomy: technical retry policy and per-run budgets (0 = no limit for budgets)
+    pipeline_max_retries: int = 3
+    pipeline_backoff_base_s: float = 30.0
+    pipeline_backoff_cap_s: float = 900.0
+    pipeline_token_budget: int = 2_000_000
+    pipeline_max_jobs: int = 60
+    # Limits on AI calls across all jobs: concurrent calls (per process and, with Redis, globally) and tokens/day
+    llm_max_concurrent_calls: int = 4
+    llm_daily_token_budget: int = 0
     # Screening (Phase 5). Title/abstract: an exclusion reason is encouraged; set true to require one.
     screening_ta_require_exclusion_reason: bool = False
 

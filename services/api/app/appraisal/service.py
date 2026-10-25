@@ -420,6 +420,7 @@ def start_suggestions(
     *,
     paper_ids: list[str] | None,
     frameworks: dict[str, str] | None,
+    request_key: str | None = None,
 ) -> Job:
     protocol_service.require_writable(project)
     included = [str(p) for p in schema_service.included_paper_ids(db, project)]
@@ -452,8 +453,8 @@ def start_suggestions(
         user,
         job_type=JOB_TYPE,
         project_id=project.id,
-        payload={"frameworks": fmap, "nonce": str(uuid.uuid4())},
-        request_key=None,
+        payload={"frameworks": fmap, "nonce": request_key or str(uuid.uuid4())},
+        request_key=request_key,
     )
     return job
 

@@ -54,6 +54,10 @@ erDiagram
   draft_versions ||--o{ claim_evidence_links : cites
   projects ||--o{ report_exports : exports
   draft_versions ||--o{ report_exports : exported_as
+  projects ||--o{ pipeline_runs : orchestrates
+  pipeline_runs ||--o{ pipeline_events : history
+  projects ||--o{ stage_invalidations : flags
+  pipeline_runs ||--o{ stage_invalidations : raised_by
   paper_records ||--o{ claim_evidence_links : target
   evidence_items ||--o{ claim_evidence_links : supports
   protocol_questions ||--o{ question_coverage : covered
@@ -380,6 +384,45 @@ erDiagram
     bool data_changed_since_draft
     timestamptz created_at
   }
+  pipeline_runs {
+    uuid id PK
+    uuid project_id FK
+    uuid thread_id
+    string graph_version
+    string status
+    string stage
+    string start_stage
+    jsonb autonomy
+    jsonb pending
+    jsonb outputs
+    jsonb counters
+    uuid protocol_version_id FK
+    uuid supersedes_id FK
+    text rerun_reason
+    uuid created_by FK
+    int row_version
+  }
+  pipeline_events {
+    uuid id PK
+    uuid run_id FK
+    uuid project_id FK
+    string kind
+    string stage
+    jsonb payload
+    uuid actor_id
+    timestamptz created_at
+  }
+  stage_invalidations {
+    uuid id PK
+    uuid project_id FK
+    uuid pipeline_run_id FK
+    string stage
+    string cause
+    jsonb detail
+    string status
+    text resolution
+    timestamptz resolved_at
+  }
   question_coverage {
     uuid id PK
     uuid protocol_question_id FK
@@ -480,6 +523,9 @@ erDiagram
 | `draft_versions` | unique `(project_id, version)`; immutable versions (every edit = new version, previous `superseded`); tables only from stored data | Phase 11 |
 | `claim_evidence_links` | FK to `paper_records` (every citation is a stored record) and optional `evidence_items` + revision | Phase 11 |
 | `report_exports` | format CHECK; SHA-256 of delivered bytes + review state at export | Phase 11 |
+| `pipeline_runs` | partial unique `(project_id) WHERE status in (queued,running,waiting,paused)`: one active run; reruns are new rows (`supersedes_id`) | Phase 13 |
+| `pipeline_events` | append-only trigger (deletion only by cascade) | Phase 13 audit |
+| `stage_invalidations` | never deletes outputs; `open → resolved/dismissed` with a recorded resolution | Phase 13 |
 | `llm_consents` | partial unique `(project_id, provider, model, data_class) WHERE revoked_at IS NULL` | gate G3 |
 | `screening_decision_criteria` | unique `(screening_decision_id, protocol_criterion_id)`; `assessment` in `met\|not_met\|unclear` | criterion-level rationale (spec §3.6) |
 | `jobs` | partial unique `(owner_id, request_key) WHERE request_key IS NOT NULL`; partial unique `(owner_id, type, COALESCE(project_id, zero-uuid), input_fingerprint) WHERE status IN ('queued','running')` | replay-safe submission **and** no duplicate in-flight work, **without** blocking legitimate reruns (A5) |

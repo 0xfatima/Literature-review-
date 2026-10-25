@@ -1087,3 +1087,71 @@ export interface ClaimTrace {
     changed_since_cited: boolean;
   }[];
 }
+
+// ---------- Phase 13: controlled autonomy ----------
+export interface PipelinePending {
+  type: "approval" | "wait_job" | "backoff";
+  kind?: string;
+  stage: string;
+  key: string;
+  message: string;
+  options?: string[];
+  job_id?: string;
+  until?: string;
+  ai?: boolean;
+  detail?: Record<string, unknown>;
+}
+export interface PipelineRunView {
+  id: string;
+  status: "queued" | "running" | "waiting" | "paused" | "completed" | "cancelled" | "failed" | "superseded";
+  stage: string | null;
+  start_stage: string;
+  autonomy: Record<string, boolean>;
+  pending: PipelinePending | null;
+  outputs: Record<string, Record<string, unknown>>;
+  counters: { retries?: Record<string, number>; skipped?: string[]; jobs_dispatched?: number };
+  supersedes_id: string | null;
+  rerun_reason: string | null;
+  error_summary: string | null;
+  created_at: string;
+  finished_at: string | null;
+  changes_since_previous_run: Record<string, string[]>;
+  stages: { key: string; label: string }[];
+  events: {
+    kind: string;
+    stage: string | null;
+    payload: Record<string, unknown>;
+    at: string;
+    by_person: boolean;
+  }[];
+}
+export interface PipelineInvalidation {
+  id: string;
+  stage: string;
+  cause: string;
+  detail: Record<string, unknown>;
+  status: "open" | "resolved" | "dismissed";
+  resolution: string | null;
+  created_at: string;
+}
+export interface PipelineOverview {
+  run: PipelineRunView | null;
+  history: {
+    id: string;
+    status: string;
+    start_stage: string;
+    rerun_reason: string | null;
+    created_at: string;
+  }[];
+  invalidations: PipelineInvalidation[];
+  defaults: { autonomy: Record<string, boolean>; stages: string[] };
+  limits: Record<string, number>;
+}
+export interface CriteriaImpact {
+  counts: { needs_redecision?: number; needs_review?: number; carry_forward?: number };
+  criteria_changes: { added?: string[]; removed?: string[]; changed?: string[] };
+  needs_redecision: { paper_id: string; title: string; why: string; decision: string }[];
+  needs_review: { paper_id: string; title: string; why: string; decision: string }[];
+  carry_forward: { paper_id: string; title: string; why: string; decision: string }[];
+  protocol_version?: number;
+}

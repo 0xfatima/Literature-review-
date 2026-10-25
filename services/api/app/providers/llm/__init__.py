@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -81,4 +82,15 @@ def build_gateway(settings: Any, *, client: httpx.Client | None = None) -> LLMGa
         provider,
         send_private_documents=settings.llm_send_private_documents,
         terms_reviewed=terms_record_ok(settings),
+        slots=_slots(int(getattr(settings, "llm_max_concurrent_calls", 4) or 4)),
     )
+
+
+_SLOTS: dict[int, threading.BoundedSemaphore] = {}
+
+
+def _slots(n: int) -> threading.BoundedSemaphore:
+    """One process-wide semaphore per configured size: bounds concurrent AI calls from all gateways."""
+    if n not in _SLOTS:
+        _SLOTS[n] = threading.BoundedSemaphore(max(1, n))
+    return _SLOTS[n]

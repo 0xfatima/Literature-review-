@@ -12,7 +12,9 @@ tokens, duration, status), success or failure.
 
 from __future__ import annotations
 
+import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -68,6 +70,11 @@ class LLMGateway:
     send_private_documents: bool = False
     terms_reviewed: bool = False
     calls: list[LLMResult] = field(default_factory=list)
+    # Phase 13 limits. `budget_guard` returns a reason when a token budget is spent (set by the calling job);
+    # `slots` bounds concurrent calls in this process.
+    budget_guard: Callable[[], str | None] | None = None
+    slots: threading.BoundedSemaphore | None = None
+    slot_wait_s: float = 60.0
 
     def private_document_block(self, consent: ConsentToken | None) -> str | None:
         """None when private document text may be sent; otherwise a short user-safe reason."""
@@ -106,10 +113,24 @@ class LLMGateway:
             block = self.private_document_block(consent)
             if block is not None:
                 raise LLMError("refused", block)
+        if self.budget_guard is not None:
+            reason = self.budget_guard()
+            if reason:
+                raise LLMError("rate_limited", reason)
+        if self.slots is not None and not self.slots.acquire(timeout=self.slot_wait_s):
+            raise LLMError("rate_limited", "Too many AI calls are in progress; try again shortly.")
         start = time.monotonic()
-        result = self.provider.generate_json(
-            system=system, prompt=prompt, schema=schema, temperature=temperature, max_output_tokens=max_output_tokens
-        )
+        try:
+            result = self.provider.generate_json(
+                system=system,
+                prompt=prompt,
+                schema=schema,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+            )
+        finally:
+            if self.slots is not None:
+                self.slots.release()
         result.duration_ms = result.duration_ms or int((time.monotonic() - start) * 1000)
         self.calls.append(result)
         return result

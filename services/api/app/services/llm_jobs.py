@@ -4,9 +4,11 @@ private-document gate, `model_runs` bookkeeping and page-aligned document chunks
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import DocumentPage, Job, ModelRun, PaperDocument, Project
@@ -17,8 +19,36 @@ from app.services import consent_service
 STOP_KINDS = frozenset({"rate_limited", "rejected", "not_configured", "refused"})
 
 
+def token_guard(db: Session, project_id: uuid.UUID, daily_budget: int) -> Callable[[], str | None] | None:
+    """Phase 13: a guard that stops AI calls once the project's tokens recorded today reach the daily budget."""
+    if daily_budget <= 0:
+        return None
+
+    def check() -> str | None:
+        since = datetime.now(UTC) - timedelta(days=1)
+        used = (
+            db.scalar(
+                select(
+                    func.coalesce(
+                        func.sum(func.coalesce(ModelRun.input_tokens, 0) + func.coalesce(ModelRun.output_tokens, 0)), 0
+                    )
+                ).where(ModelRun.project_id == project_id, ModelRun.created_at >= since)
+            )
+            or 0
+        )
+        if int(used) >= daily_budget:
+            return f"The project's AI token budget for the last 24 hours is used up ({int(used)} of {daily_budget})."
+        return None
+
+    return check
+
+
 def gate(db: Session, project: Project, gw: LLMGateway) -> tuple[ConsentToken | None, str | None]:
     """(consent token, block reason). block is None when private document text may be sent (gates G1-G3)."""
+    from app.core.config import get_settings
+
+    if gw.budget_guard is None:
+        gw.budget_guard = token_guard(db, project.id, get_settings().llm_daily_token_budget)
     consent = consent_service.token_for(db, project, gw.provider.name, gw.provider.model) if gw.provider else None
     return consent, gw.private_document_block(consent)
 

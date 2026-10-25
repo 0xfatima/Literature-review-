@@ -134,6 +134,7 @@ def start(
     *,
     paper_ids: list[str] | None,
     force: bool,
+    request_key: str | None = None,
 ) -> Job:
     schema = schema_service.get_schema(db, project, schema_id)
     protocol_service.require_writable(project)
@@ -160,8 +161,13 @@ def start(
         user,
         job_type=JOB_TYPE,
         project_id=project.id,
-        payload={"schema_id": str(schema.id), "paper_ids": chosen, "force": force, "nonce": str(uuid.uuid4())},
-        request_key=None,
+        payload={
+            "schema_id": str(schema.id),
+            "paper_ids": chosen,
+            "force": force,
+            "nonce": request_key or str(uuid.uuid4()),
+        },
+        request_key=request_key,
     )
     return job
 
@@ -410,6 +416,10 @@ def execute(db: Session, job: Job, settings: Settings, *, gateway: LLMGateway | 
     wanted = [p for p in wanted if p in included_set]
     force = bool(payload.get("force"))
     gw = gateway or build_gateway(settings)
+    if gw.budget_guard is None:
+        from app.services.llm_jobs import token_guard
+
+        gw.budget_guard = token_guard(db, project.id, settings.llm_daily_token_budget)
     consent = consent_service.token_for(db, project, gw.provider.name, gw.provider.model) if gw.provider else None
     block = gw.private_document_block(consent)
     totals: dict[str, int] = {

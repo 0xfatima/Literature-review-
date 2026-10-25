@@ -234,7 +234,26 @@ def start(
     tier: str,
     expression: str | None,
     provider_keys: list[str] | None,
+    request_key: str | None = None,
 ) -> SearchRun:
+    if request_key:
+        existing_job = job_service.get_by_request_key(db, user.id, request_key)
+        if existing_job is not None:
+            existing_run = (
+                db.query(SearchRun)
+                .filter(
+                    SearchRun.project_id == project.id,
+                    SearchRun.job_id == existing_job.id,
+                )
+                .one_or_none()
+            )
+            if existing_run is not None:
+                return existing_run
+            raise Conflict(
+                "The request key already belongs to another operation.",
+                code="idempotency_key_reuse",
+            )
+
     protocol_service.require_writable(project)
     approved = _check_can_search(db, project)
     if repo.active_run(db, project.id) is not None:
@@ -315,11 +334,19 @@ def start(
             "added_beyond_protocol": plan["protocol_sources"]["added_beyond_protocol"],
         },
     )
-    _enqueue(db, settings, dispatch, user, run)
+    _enqueue(db, settings, dispatch, user, run, request_key=request_key)
     return run
 
 
-def _enqueue(db: Session, settings: Settings, dispatch: Dispatcher, user: User, run: SearchRun) -> None:
+def _enqueue(
+    db: Session,
+    settings: Settings,
+    dispatch: Dispatcher,
+    user: User,
+    run: SearchRun,
+    *,
+    request_key: str | None = None,
+) -> None:
     job, _ = job_service.enqueue(
         db,
         settings,
@@ -328,7 +355,7 @@ def _enqueue(db: Session, settings: Settings, dispatch: Dispatcher, user: User, 
         job_type=JOB_TYPE,
         project_id=run.project_id,
         payload={"search_run_id": str(run.id), "attempt": run.attempt_count},
-        request_key=None,
+        request_key=request_key,
         rerun_of=run.job_id,
     )  # commits the run together with the job row, then dispatches
     run.job_id = job.id
