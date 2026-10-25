@@ -1,6 +1,6 @@
 "use client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import { ATTENTION, STAGES, stageIndex } from "@/lib/stages";
 import type { ConversationList, Job, Project } from "@/lib/types";
@@ -16,6 +16,8 @@ import ExtractionPanel from "@/components/extraction/ExtractionPanel";
 import ReportPanel from "@/components/report/ReportPanel";
 import SynthesisPanel from "@/components/synthesis/SynthesisPanel";
 import ScreeningPanel from "@/components/screening/ScreeningPanel";
+import PaperInspector from "@/components/papers/PaperInspector";
+import StageNavigator from "@/components/workspace/StageNavigator";
 import { useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
 import { WORKFLOW_STAGES, statusText } from "@/lib/protocol";
 import type { WorkflowState } from "@/lib/types";
@@ -182,6 +184,24 @@ export default function Workspace({
   const qc = useQueryClient();
   const { reportError } = useStatus();
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  // Visited panels stay mounted (hidden) so switching tabs never loses unsaved edits, filters or scroll position.
+  const [visited, setVisited] = useState<Set<TabId>>(() => new Set([tab]));
+  useEffect(() => {
+    setVisited((v) => (v.has(tab) ? v : new Set([...v, tab])));
+  }, [tab]);
+  const panel = (id: TabId, node: ReactNode) =>
+    visited.has(id) ? (
+      <div
+        key={id}
+        role="tabpanel"
+        id={`panel-${id}`}
+        aria-labelledby={`tab-${id}`}
+        hidden={tab !== id}
+        className="px-6 py-5"
+      >
+        {node}
+      </div>
+    ) : null;
   const messageTotal = conversations?.items.reduce((n, c) => n + c.message_count, 0) ?? 0;
 
   const workerCheck = useMutation({
@@ -200,10 +220,11 @@ export default function Workspace({
 
   return (
     <div className="flex min-h-full flex-col">
+      <StageNavigator projectId={project.id} activeTab={tab} onTab={(t) => onTab(t as TabId)} />
       <div
         role="tablist"
         aria-label="Workspace"
-        className="flex shrink-0 gap-1 border-b border-line px-3 pt-2"
+        className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 pt-2"
       >
         {TABS.map((t, i) => {
           const selected = t.id === tab;
@@ -237,104 +258,115 @@ export default function Workspace({
         })}
       </div>
 
-      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="flex-1 px-6 py-5">
-        {tab === "status" && (
-          <div className="flex max-w-3xl flex-col gap-8">
-            <section aria-labelledby="stage-h">
-              <h2 id="stage-h" className="section-title mb-3">
-                Where this review is
-              </h2>
-              <StageTrack status={project.status} />
-            </section>
+      <div className="flex min-h-0 flex-1">
+        <div className="min-w-0 flex-1">
+          {panel(
+            "status",
+            <div className="flex max-w-3xl flex-col gap-8">
+              <section aria-labelledby="stage-h">
+                <h2 id="stage-h" className="section-title mb-3">
+                  Where this review is
+                </h2>
+                <StageTrack status={project.status} />
+              </section>
 
-            <section aria-labelledby="topic-h">
-              <h2 id="topic-h" className="section-title mb-2">
-                Original topic
-              </h2>
-              <p className="max-w-prose whitespace-pre-wrap">{project.topic_original}</p>
-            </section>
+              <section aria-labelledby="topic-h">
+                <h2 id="topic-h" className="section-title mb-2">
+                  Original topic
+                </h2>
+                <p className="max-w-prose whitespace-pre-wrap">{project.topic_original}</p>
+              </section>
 
-            <section aria-labelledby="facts-h">
-              <h2 id="facts-h" className="sr-only">
-                Project details
-              </h2>
-              <dl className="grid grid-cols-[9rem_1fr] gap-y-2 text-sm">
-                <dt className="text-muted">Created</dt>
-                <dd>{new Date(project.created_at).toLocaleString()}</dd>
-                <dt className="text-muted">Last updated</dt>
-                <dd>{new Date(project.updated_at).toLocaleString()}</dd>
-                <dt className="text-muted">Chat threads</dt>
-                <dd>{conversations ? conversations.total : "…"}</dd>
-                <dt className="text-muted">Messages</dt>
-                <dd>{conversations ? messageTotal : "…"}</dd>
-              </dl>
-            </section>
+              <section aria-labelledby="facts-h">
+                <h2 id="facts-h" className="sr-only">
+                  Project details
+                </h2>
+                <dl className="grid grid-cols-[9rem_1fr] gap-y-2 text-sm">
+                  <dt className="text-muted">Created</dt>
+                  <dd>{new Date(project.created_at).toLocaleString()}</dd>
+                  <dt className="text-muted">Last updated</dt>
+                  <dd>{new Date(project.updated_at).toLocaleString()}</dd>
+                  <dt className="text-muted">Chat threads</dt>
+                  <dd>{conversations ? conversations.total : "…"}</dd>
+                  <dt className="text-muted">Messages</dt>
+                  <dd>{conversations ? messageTotal : "…"}</dd>
+                </dl>
+              </section>
 
-            <WorkflowSection
+              <WorkflowSection
+                projectId={project.id}
+                canWrite={project.archived_at === null}
+                onOpenProtocol={() => onTab("protocol")}
+                onOpenSearch={() => onTab("search")}
+              />
+
+              <section aria-labelledby="sys-h">
+                <h2 id="sys-h" className="section-title mb-2">
+                  Background processing
+                </h2>
+                <p className="mb-2 max-w-prose text-sm text-muted">
+                  Long tasks such as searches and PDF parsing will run in the background and report progress
+                  in the status bar. You can check that the background worker is responding now.
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => workerCheck.mutate()}
+                  disabled={workerCheck.isPending}
+                >
+                  Check background worker
+                </button>
+              </section>
+            </div>,
+          )}
+          {panel(
+            "protocol",
+            <ProtocolPanel
+              projectId={project.id}
+              canWrite={project.archived_at === null}
+              onOpenConversation={onOpenConversation}
+            />,
+          )}
+          {panel(
+            "search",
+            <SearchPanel
               projectId={project.id}
               canWrite={project.archived_at === null}
               onOpenProtocol={() => onTab("protocol")}
+              onOpenPapers={() => onTab("papers")}
+              onOpenScreening={() => onTab("screening")}
+            />,
+          )}
+          {panel(
+            "screening",
+            <ScreeningPanel
+              projectId={project.id}
+              canWrite={project.archived_at === null}
               onOpenSearch={() => onTab("search")}
-            />
-
-            <section aria-labelledby="sys-h">
-              <h2 id="sys-h" className="section-title mb-2">
-                Background processing
-              </h2>
-              <p className="mb-2 max-w-prose text-sm text-muted">
-                Long tasks such as searches and PDF parsing will run in the background and report progress in
-                the status bar. You can check that the background worker is responding now.
-              </p>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => workerCheck.mutate()}
-                disabled={workerCheck.isPending}
-              >
-                Check background worker
-              </button>
-            </section>
-          </div>
-        )}
-        {tab === "protocol" && (
-          <ProtocolPanel
-            projectId={project.id}
-            canWrite={project.archived_at === null}
-            onOpenConversation={onOpenConversation}
-          />
-        )}
-        {tab === "search" && (
-          <SearchPanel
-            projectId={project.id}
-            canWrite={project.archived_at === null}
-            onOpenProtocol={() => onTab("protocol")}
-            onOpenPapers={() => onTab("papers")}
-            onOpenScreening={() => onTab("screening")}
-          />
-        )}
-        {tab === "screening" && (
-          <ScreeningPanel
-            projectId={project.id}
-            canWrite={project.archived_at === null}
-            onOpenSearch={() => onTab("search")}
-          />
-        )}
-        {tab === "papers" && <PapersPanel projectId={project.id} onOpenSearch={() => onTab("search")} />}
-        {tab === "files" && <DocumentsPanel projectId={project.id} canWrite={project.archived_at === null} />}
-        {tab === "flow" && <PrismaFlowPanel projectId={project.id} />}
-        {tab === "extraction" && (
-          <ExtractionPanel projectId={project.id} canWrite={project.archived_at === null} />
-        )}
-        {tab === "tables" && (
-          <EvidenceTablePanel projectId={project.id} canWrite={project.archived_at === null} />
-        )}
-        {tab === "appraisal" && (
-          <AppraisalPanel projectId={project.id} canWrite={project.archived_at === null} />
-        )}
-        {tab === "synthesis" && (
-          <SynthesisPanel projectId={project.id} canWrite={project.archived_at === null} />
-        )}
-        {tab === "report" && <ReportPanel projectId={project.id} canWrite={project.archived_at === null} />}
+            />,
+          )}
+          {panel("papers", <PapersPanel projectId={project.id} onOpenSearch={() => onTab("search")} />)}
+          {panel("files", <DocumentsPanel projectId={project.id} canWrite={project.archived_at === null} />)}
+          {panel("flow", <PrismaFlowPanel projectId={project.id} />)}
+          {panel(
+            "extraction",
+            <ExtractionPanel projectId={project.id} canWrite={project.archived_at === null} />,
+          )}
+          {panel(
+            "tables",
+            <EvidenceTablePanel projectId={project.id} canWrite={project.archived_at === null} />,
+          )}
+          {panel(
+            "appraisal",
+            <AppraisalPanel projectId={project.id} canWrite={project.archived_at === null} />,
+          )}
+          {panel(
+            "synthesis",
+            <SynthesisPanel projectId={project.id} canWrite={project.archived_at === null} />,
+          )}
+          {panel("report", <ReportPanel projectId={project.id} canWrite={project.archived_at === null} />)}
+        </div>
+        <PaperInspector projectId={project.id} canWrite={project.archived_at === null} />
       </div>
     </div>
   );

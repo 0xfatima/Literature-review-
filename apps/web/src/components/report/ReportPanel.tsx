@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useStatus } from "@/components/status/StatusContext";
+import { useUnsavedChanges } from "@/components/workspace/WorkspaceContext";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import { formatValue } from "@/lib/extraction";
 import {
@@ -193,6 +194,14 @@ export default function ReportPanel({ projectId, canWrite }: { projectId: string
   const [ops, setOps] = useState<Op[]>([]);
   const [summary, setSummary] = useState("");
   const [newPara, setNewPara] = useState<Record<string, string>>({});
+  useUnsavedChanges(
+    "report-edits",
+    editing &&
+      (Object.keys(texts).length > 0 ||
+        ops.length > 0 ||
+        Object.values(newPara).some((t) => t.trim()) ||
+        !!summary),
+  );
   const { data: versions } = useQuery({
     queryKey: ["report", projectId, "versions"],
     queryFn: () => apiFetch<ReportVersionSummary[]>(`/projects/${projectId}/reports`),

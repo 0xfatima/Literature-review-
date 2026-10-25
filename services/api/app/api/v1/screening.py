@@ -160,5 +160,5 @@ def start_relevance(
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> Job:
     return relevance_service.start(
-        db, settings, dispatch, limiter, user, project, use_llm=body.use_llm, force=body.force
+        db, settings, dispatch, limiter, user, project, use_llm=body.use_llm, force=body.force, paper_ids=body.paper_ids
     )

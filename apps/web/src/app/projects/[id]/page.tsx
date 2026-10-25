@@ -9,6 +9,11 @@ import Sidebar from "@/components/sidebar/Sidebar";
 import StatusBar from "@/components/status/StatusBar";
 import { StatusProvider, useStatus } from "@/components/status/StatusContext";
 import Workspace, { TABS, type TabId } from "@/components/workspace/Workspace";
+import {
+  type InspectorTab,
+  UnsavedChangesProvider,
+  WorkspaceProvider,
+} from "@/components/workspace/WorkspaceContext";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import type { Conversation, ConversationList, Project } from "@/lib/types";
@@ -18,7 +23,9 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   return (
     <Suspense fallback={<p className="p-6 text-muted">Loading…</p>}>
       <StatusProvider>
-        <ProjectWorkspace id={id} />
+        <UnsavedChangesProvider>
+          <ProjectWorkspace id={id} />
+        </UnsavedChangesProvider>
       </StatusProvider>
     </Suspense>
   );
@@ -36,6 +43,10 @@ function ProjectWorkspace({ id }: { id: string }) {
   const tabParam = search.get("tab");
   const tab: TabId = TABS.some((t) => t.id === tabParam) ? (tabParam as TabId) : "status";
   const threadParam = search.get("c");
+  const paperParam = search.get("paper");
+  const INSPECTOR_TABS: InspectorTab[] = ["overview", "abstract", "fulltext", "evidence", "screening"];
+  const ptabParam = search.get("ptab") as InspectorTab | null;
+  const inspectorTab: InspectorTab = ptabParam && INSPECTOR_TABS.includes(ptabParam) ? ptabParam : "overview";
 
   const setParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -142,102 +153,110 @@ function ProjectWorkspace({ id }: { id: string }) {
   const canWrite = p.archived_at === null;
 
   return (
-    <IdeShell
-      topBar={
-        <>
-          <div className="flex min-w-0 items-center gap-3">
-            <Link href="/projects" className="shrink-0 text-sm">
-              Projects
-            </Link>
-            <span aria-hidden className="text-muted">
-              /
-            </span>
-            {title !== null ? (
-              <form
-                className="flex gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  rename.mutate(p);
-                }}
-              >
-                <label htmlFor="rename" className="sr-only">
-                  Project title
-                </label>
-                <input
-                  id="rename"
-                  className="input py-1"
-                  value={title}
-                  maxLength={200}
-                  autoFocus
-                  onChange={(e) => setTitle(e.target.value)}
-                />
-                <button className="btn" disabled={!title.trim() || rename.isPending}>
-                  Save
-                </button>
-                <button type="button" className="btn-ghost" onClick={() => setTitle(null)}>
-                  Cancel
-                </button>
-              </form>
-            ) : (
-              <>
-                <h1 className="truncate font-semibold" title={p.title}>
-                  {p.title}
-                </h1>
-                <button type="button" className="btn-ghost text-xs" onClick={() => setTitle(p.title)}>
-                  Rename
-                </button>
-              </>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-2 text-xs text-muted">
-            <span aria-label="Signed in as">{me.data.email}</span>
-            <button type="button" className="btn-ghost text-xs" onClick={() => logout.mutate()}>
-              Sign out
-            </button>
-          </div>
-        </>
-      }
-      sidebar={
-        <Sidebar
-          projectId={id}
-          conversations={conversations.data}
-          selectedId={selected?.id ?? null}
-          onSelect={(c) => setParams({ c: c.id })}
-          onNewThread={() => createThread.mutate()}
-          canWrite={canWrite}
-          creating={createThread.isPending}
-        />
-      }
-      chat={
-        <ChatPanel
-          project={p}
-          conversation={selected}
-          onNewThread={() => createThread.mutate()}
-          onDeleted={(deletedId) => {
-            // Drop it from the cached list first so the fallback never re-selects a deleted thread.
-            qc.setQueryData<ConversationList>(["conversations", id], (old) =>
-              old
-                ? { ...old, items: old.items.filter((c) => c.id !== deletedId), total: old.total - 1 }
-                : old,
-            );
-            setParams({ c: null });
-          }}
-          creating={createThread.isPending}
-        />
-      }
-      workspace={
-        <Workspace
-          project={p}
-          conversations={conversations.data}
-          tab={tab}
-          onTab={(t) => setParams({ tab: t })}
-          onOpenConversation={(cid) => {
-            qc.invalidateQueries({ queryKey: ["conversations", id] });
-            setParams({ c: cid });
-          }}
-        />
-      }
-      statusBar={<StatusBar project={p} />}
-    />
+    <WorkspaceProvider
+      paperId={paperParam}
+      inspectorTab={inspectorTab}
+      onPaper={(paper, ptab) => setParams({ paper, ptab: paper ? ptab : null })}
+      onTab={(t) => setParams({ tab: t })}
+      conversationId={selected?.id ?? null}
+    >
+      <IdeShell
+        topBar={
+          <>
+            <div className="flex min-w-0 items-center gap-3">
+              <Link href="/projects" className="shrink-0 text-sm">
+                Projects
+              </Link>
+              <span aria-hidden className="text-muted">
+                /
+              </span>
+              {title !== null ? (
+                <form
+                  className="flex gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    rename.mutate(p);
+                  }}
+                >
+                  <label htmlFor="rename" className="sr-only">
+                    Project title
+                  </label>
+                  <input
+                    id="rename"
+                    className="input py-1"
+                    value={title}
+                    maxLength={200}
+                    autoFocus
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                  <button className="btn" disabled={!title.trim() || rename.isPending}>
+                    Save
+                  </button>
+                  <button type="button" className="btn-ghost" onClick={() => setTitle(null)}>
+                    Cancel
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <h1 className="truncate font-semibold" title={p.title}>
+                    {p.title}
+                  </h1>
+                  <button type="button" className="btn-ghost text-xs" onClick={() => setTitle(p.title)}>
+                    Rename
+                  </button>
+                </>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2 text-xs text-muted">
+              <span aria-label="Signed in as">{me.data.email}</span>
+              <button type="button" className="btn-ghost text-xs" onClick={() => logout.mutate()}>
+                Sign out
+              </button>
+            </div>
+          </>
+        }
+        sidebar={
+          <Sidebar
+            projectId={id}
+            conversations={conversations.data}
+            selectedId={selected?.id ?? null}
+            onSelect={(c) => setParams({ c: c.id })}
+            onNewThread={() => createThread.mutate()}
+            canWrite={canWrite}
+            creating={createThread.isPending}
+          />
+        }
+        chat={
+          <ChatPanel
+            project={p}
+            conversation={selected}
+            onNewThread={() => createThread.mutate()}
+            onDeleted={(deletedId) => {
+              // Drop it from the cached list first so the fallback never re-selects a deleted thread.
+              qc.setQueryData<ConversationList>(["conversations", id], (old) =>
+                old
+                  ? { ...old, items: old.items.filter((c) => c.id !== deletedId), total: old.total - 1 }
+                  : old,
+              );
+              setParams({ c: null });
+            }}
+            creating={createThread.isPending}
+          />
+        }
+        workspace={
+          <Workspace
+            project={p}
+            conversations={conversations.data}
+            tab={tab}
+            onTab={(t) => setParams({ tab: t })}
+            onOpenConversation={(cid) => {
+              qc.invalidateQueries({ queryKey: ["conversations", id] });
+              setParams({ c: cid });
+            }}
+          />
+        }
+        statusBar={<StatusBar project={p} />}
+      />
+    </WorkspaceProvider>
   );
 }

@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     extraction_max_papers_per_job: int = 50
     rate_limit_relevance_per_hour: int = 20
     rate_limit_extraction_per_hour: int = 10
+    rate_limit_assistant_per_hour: int = 30
     # Screening (Phase 5). Title/abstract: an exclusion reason is encouraged; set true to require one.
     screening_ta_require_exclusion_reason: bool = False
 

@@ -1,5 +1,9 @@
 "use client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import ProgressIndicator from "@/components/common/ProgressIndicator";
+import { useHasUnsavedChanges } from "@/components/workspace/WorkspaceContext";
+import { JOB_STATE_LABELS, jobState, newlyFinished } from "@/lib/workspace";
 import { apiFetch } from "@/lib/api";
 import { stageLabel } from "@/lib/stages";
 import type { Job, JobList, Project } from "@/lib/types";
@@ -36,6 +40,40 @@ export default function StatusBar({ project }: { project: Project }) {
   });
 
   const active = jobs.data?.items ?? [];
+  const recent = useQuery({
+    queryKey: ["jobs", project.id, "recent"],
+    queryFn: () => apiFetch<JobList>(`/jobs?project_id=${project.id}&limit=15`),
+    refetchInterval: active.length > 0 ? 2000 : 15_000,
+  });
+  const [open, setOpen] = useState(false);
+  const [notices, setNotices] = useState<{ id: string; text: string; failed: boolean }[]>([]);
+  const previous = useRef<Job[] | null>(null);
+  const unsaved = useHasUnsavedChanges();
+  useEffect(() => {
+    const items = recent.data?.items;
+    if (!items) return;
+    if (previous.current) {
+      const done = newlyFinished(previous.current, items);
+      if (done.length) {
+        // A finished job changes stored data: refresh every panel of this project so chat and panels agree.
+        qc.invalidateQueries({ predicate: (q) => q.queryKey[1] === project.id && q.queryKey[0] !== "jobs" });
+        setNotices((n) =>
+          [
+            ...done.map((j) => ({
+              id: j.id,
+              text: `${jobLabel(j)}: ${JOB_STATE_LABELS[jobState(j)].toLowerCase()}${
+                j.error_summary ? ` — ${j.error_summary}` : ""
+              }`,
+              failed: jobState(j) === "failed",
+            })),
+            ...n,
+          ].slice(0, 3),
+        );
+      }
+    }
+    previous.current = items;
+  }, [recent.data, qc, project.id]);
+  const failedCount = (recent.data?.items ?? []).filter((j) => jobState(j) === "failed").length;
   return (
     <>
       <span>
@@ -67,7 +105,66 @@ export default function StatusBar({ project }: { project: Project }) {
         ))}
       </span>
 
+      <span className="relative">
+        <button
+          type="button"
+          className="text-link hover:underline"
+          aria-expanded={open}
+          aria-controls="jobs-menu"
+          onClick={() => setOpen((v) => !v)}
+        >
+          Jobs{failedCount ? ` (${failedCount} failed)` : ""}
+        </button>
+        {open && (
+          <div
+            id="jobs-menu"
+            role="dialog"
+            aria-label="Recent background jobs"
+            className="absolute bottom-6 left-0 z-40 w-[min(32rem,90vw)] rounded border border-line bg-panel p-3 shadow"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setOpen(false);
+            }}
+          >
+            <p className="mb-2 text-xs text-muted">
+              Recent jobs for this project. Failed jobs keep the work completed before the failure; start them
+              again from their panel.
+            </p>
+            <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto text-xs">
+              {(recent.data?.items ?? []).map((j) => (
+                <li key={j.id} className="border-b border-line pb-1">
+                  <ProgressIndicator label={jobLabel(j)} job={j} />
+                  <span className="block text-2xs text-muted">
+                    Started {new Date(j.created_at).toLocaleString()}
+                    {j.finished_at && ` · finished ${new Date(j.finished_at).toLocaleTimeString()}`}
+                  </span>
+                </li>
+              ))}
+              {recent.data && recent.data.items.length === 0 && <li className="text-muted">No jobs yet.</li>}
+            </ul>
+            <button type="button" className="btn-ghost mt-2 text-xs" onClick={() => setOpen(false)}>
+              Close
+            </button>
+          </div>
+        )}
+      </span>
+      <span aria-live="polite" className="flex items-center gap-2">
+        {notices.map((n) => (
+          <span key={n.id} className={n.failed ? "text-danger" : "text-ok"}>
+            {n.text}
+            <button
+              type="button"
+              className="ml-1 underline"
+              onClick={() => setNotices((l) => l.filter((x) => x.id !== n.id))}
+              aria-label="Dismiss notification"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </span>
+
       <span className="ml-auto flex items-center gap-3" role="status">
+        {unsaved && <span className="text-mark">Unsaved edits</span>}
         {error && (
           <span className="flex items-center gap-1 text-danger">
             <span>Error: {error}</span>
