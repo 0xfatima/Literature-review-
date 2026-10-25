@@ -67,7 +67,10 @@ def world(user_client, dispatcher):
         f"/api/v1/projects/{p1}/extraction/schemas",
         json={"field_definitions": [{"field_key": "outcome", "label": "Outcome", "type": "text"}]},
     ).json()["id"]
+    assert a.post(f"/api/v1/projects/{p1}/extraction/schemas/{schema}/approve", json={}).status_code == 200
+    synthesis = a.post(f"/api/v1/projects/{p1}/synthesis/versions", json={}).json()["id"]
     ids = {
+        "synthesis_id": synthesis,
         "document_id": document,
         "schema_id": schema,
         "field_key": "outcome",
@@ -133,6 +136,7 @@ def test_conversation_is_not_reachable_through_another_project_of_the_same_owner
         object_ids += ("document_id",) if method in ("GET", "DELETE") else ()
         object_ids += ("schema_id",) if method in ("GET", "POST", "PATCH", "PUT") else ()
         object_ids += ("field_key",) if method == "PUT" else ()
+        object_ids += ("synthesis_id",)
         if any(f"{{{k}}}" in path for k in object_ids):
             r = call(a, method, fill(path, {**ids, "project_id": p2}))
             assert r.status_code == 404, f"{method} {path} via other project -> {r.status_code}"

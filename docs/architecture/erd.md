@@ -44,6 +44,10 @@ erDiagram
   evidence_outputs ||--o{ evidence_output_items : used
   evidence_items ||--o{ evidence_output_items : used_in
   paper_records ||--o{ appraisal_records : appraised
+  projects ||--o{ appraisal_records : appraises
+  appraisal_records ||--o{ appraisal_revisions : history
+  extraction_schemas ||--o{ synthesis_versions : from
+  evidence_outputs ||--o{ synthesis_versions : recorded_as
   projects ||--o{ synthesis_versions : versions
   projects ||--o{ draft_versions : versions
   synthesis_versions ||--o{ draft_versions : feeds
@@ -296,18 +300,43 @@ erDiagram
   }
   appraisal_records {
     uuid id PK
+    uuid project_id FK
     uuid paper_id FK
-    string framework
-    jsonb judgments
+    string framework_key
+    string framework_version
     string status
-    uuid reviewer_id
+    jsonb answers
+    string suggested_overall
+    string overall_judgement
+    text overall_justification
+    uuid reviewer_id FK
+    int row_version
+  }
+  appraisal_revisions {
+    uuid id PK
+    uuid project_id FK
+    uuid appraisal_record_id FK
+    int revision
+    string action
+    jsonb before
+    jsonb after
+    uuid actor_id
+    uuid model_run_id FK
+    text reason
+    timestamptz at
   }
   synthesis_versions {
     uuid id PK
     uuid project_id FK
+    uuid extraction_schema_id FK
     int version
-    jsonb themes_and_claims
     string status
+    jsonb scope
+    jsonb statements
+    jsonb meta_analysis
+    uuid evidence_output_id FK
+    uuid model_run_id FK
+    int row_version
   }
   draft_versions {
     uuid id PK
@@ -419,6 +448,9 @@ erDiagram
 | `evidence_items` | unique `(paper_id, extraction_schema_id, field_key)`; CHECK `status='found' ⇒ value IS NOT NULL`; excerpt must occur in the cited page of a document linked to the paper (service layer; AI quotes are located and stored as the exact source substring) | provenance (rule 9) |
 | `evidence_item_revisions` | unique `(evidence_item_id, revision)`; append-only trigger (deletion only by cascade from the item) | Phase 9 history |
 | `evidence_output_items` | unique `(evidence_output_id, evidence_item_id)`; `revision` < item `row_version` ⇒ output is stale | Phase 9 lineage |
+| `appraisal_records` | unique `(paper_id, framework_key)`; reviewer judgements and AI suggestions stored apart per domain; approval requires every domain judged by a reviewer | Phase 10 |
+| `appraisal_revisions` | unique `(appraisal_record_id, revision)`; append-only trigger | Phase 10 history |
+| `synthesis_versions` | unique `(project_id, version)`; one draft per project (service); accepted versions immutable; statements cite evidence item + revision, certainty computed by rules | Phase 10 |
 | `llm_consents` | partial unique `(project_id, provider, model, data_class) WHERE revoked_at IS NULL` | gate G3 |
 | `screening_decision_criteria` | unique `(screening_decision_id, protocol_criterion_id)`; `assessment` in `met\|not_met\|unclear` | criterion-level rationale (spec §3.6) |
 | `jobs` | partial unique `(owner_id, request_key) WHERE request_key IS NOT NULL`; partial unique `(owner_id, type, COALESCE(project_id, zero-uuid), input_fingerprint) WHERE status IN ('queued','running')` | replay-safe submission **and** no duplicate in-flight work, **without** blocking legitimate reruns (A5) |

@@ -1,6 +1,19 @@
 from fastapi import APIRouter
 
-from app.api.v1 import auth, conversations, documents, extraction, jobs, prisma, projects, protocol, screening, search
+from app.api.v1 import (
+    appraisal,
+    auth,
+    conversations,
+    documents,
+    extraction,
+    jobs,
+    prisma,
+    projects,
+    protocol,
+    screening,
+    search,
+    synthesis,
+)
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
@@ -13,3 +26,5 @@ api_router.include_router(screening.router)
 api_router.include_router(documents.router)
 api_router.include_router(prisma.router)
 api_router.include_router(extraction.router)
+api_router.include_router(appraisal.router)
+api_router.include_router(synthesis.router)

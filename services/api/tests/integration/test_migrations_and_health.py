@@ -31,6 +31,10 @@ EXPECTED = {
     "evidence_outputs",
     "evidence_output_items",
     "llm_consents",
+    # Phase 10 (0009)
+    "appraisal_records",
+    "appraisal_revisions",
+    "synthesis_versions",
 }
 
 
@@ -46,6 +50,7 @@ def test_upgrade_downgrade_upgrade_roundtrip():
         assert c.scalar(text("SELECT count(*) FROM pg_proc WHERE proname='audit_events_block_mutation'")) == 0
         assert c.scalar(text("SELECT count(*) FROM pg_proc WHERE proname='screening_decision_guard'")) == 0
         assert c.scalar(text("SELECT count(*) FROM pg_proc WHERE proname='evidence_item_revision_guard'")) == 0
+        assert c.scalar(text("SELECT count(*) FROM pg_proc WHERE proname='appraisal_revision_guard'")) == 0
     command.upgrade(alembic_cfg(), "head")
     assert EXPECTED <= tables()
     # The downgrade dropped schema lg_checkpoints. This process may already have run LangGraph's checkpointer setup
