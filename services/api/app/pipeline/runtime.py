@@ -144,6 +144,11 @@ def advance(db: Session, job: Job, dispatch: Dispatcher | None = None) -> str:
         db.commit()
         return "failed"
     ctx = steps.Ctx(db, get_settings(), dispatch or send_task, get_rate_limiter(), user, project, run)
+    # End the ORM transaction the lookups above opened BEFORE entering the checkpointer. Its first use in a worker
+    # process runs LangGraph's setup (CREATE INDEX CONCURRENTLY), which waits for every open transaction to finish,
+    # including this session's own, so an open transaction here hangs the worker forever (and, through the setup
+    # advisory lock, every other worker process too).
+    db.commit()
     with checkpointer() as saver:
         graph = compile_graph(saver)
         cfg = _cfg(run, ctx)
