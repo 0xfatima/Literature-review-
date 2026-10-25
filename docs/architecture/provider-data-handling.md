@@ -41,3 +41,18 @@ No claim about any provider's data practices has been made by this project; this
 - `private_document` is refused; G1-G3 (operator flag, reviewed terms record, per-project consent) remain to be built
   before any document text is sent (extraction phases). The provider terms record above is still NOT REVIEWED.
 - Free-tier caveat shown in the UI: content sent on Google's free tier may be used to improve Google's products.
+
+## Phase 9 status (evidence extraction)
+- **All four gates are now enforced before any `private_document` call**, inside `LLMGateway.generate_json`:
+  - G1 `LLM_SEND_PRIVATE_DOCUMENTS=true` (startup outside development/test refuses it without a terms record).
+  - G2 `LLM_TERMS_RECORD_VERSION` + `LLM_TERMS_REVIEWED_ON` set by the operator after reviewing the provider's current
+    terms; expires after `LLM_TERMS_REVIEW_INTERVAL_DAYS` (default 365) and is refused if dated in the future.
+    This repository still makes **no claim** about any provider's terms; the table above remains a checklist that a
+    human must complete and keep with the deployment records.
+  - G3 an active `llm_consents` row for the project and the exact provider/model, created by the owner in the
+    Tables tab after reading the versioned notice (`document-extraction-notice-v1`). Revoking takes effect for the
+    next request; the notice says text already sent cannot be recalled.
+  - G4 every extraction request writes a `model_runs` row with `data_class='private_document'`, on failure too.
+- What is sent: the approved field definitions, the paper title, and the page text of the linked, parsed PDF of an
+  included paper, in page-aligned chunks (`EXTRACTION_CHUNK_CHARS`). Nothing else from the project is sent.
+- `FakeLLM`-style test providers are constructed with the gates set explicitly; tests never contact a provider.

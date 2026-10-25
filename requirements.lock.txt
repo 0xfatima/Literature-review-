@@ -87,3 +87,5 @@ wcwidth==0.9.3
 websockets==16.1.1
 xxhash==4.0.1
 zstandard==0.25.0
+
+colorama==0.4.6

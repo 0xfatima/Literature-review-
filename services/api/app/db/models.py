@@ -2,7 +2,8 @@
 protocol_versions, protocol_questions, protocol_criteria, workflow_runs, workflow_events (Phase 3);
 search_runs, search_queries, paper_records, paper_source_records (Phase 4);
 model_runs, relevance_assessments, screening_decisions, screening_states (Phase 5);
-paper_documents, document_pages (Phase 6); studies, PRISMA events, extraction schemas and evidence items (Phases 7-8).
+paper_documents, document_pages (Phase 6); studies, PRISMA events, extraction schemas and evidence items (Phases 7-8);
+evidence_item_revisions, evidence_outputs, evidence_output_items (Phase 9).
 
 Password-reset tokens are intentionally absent (recovery is deferred; see ADR amendment A8).
 """
@@ -1041,7 +1042,10 @@ class RecordStatusEvent(Base):
 
 # ---------- Phase 8: extraction schemas and evidence items ----------
 
-EVIDENCE_STATUSES = ("pending", "found", "not_located", "unavailable", "not_applicable")
+EVIDENCE_STATUSES = ("pending", "found", "not_located", "ambiguous", "unavailable", "not_applicable")
+EVIDENCE_ORIGINS = ("manual", "ai", "system")  # system = deterministic (e.g. no full text)
+EVIDENCE_REVIEW_STATUSES = ("unreviewed", "approved", "edited")
+EVIDENCE_OUTPUT_KINDS = ("csv_export",)
 FIELD_TYPES = ("text", "number", "choice", "multi_choice", "boolean", "date")
 
 
@@ -1113,16 +1117,130 @@ class EvidenceItem(Base):
         UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL")
     )
     note: Mapped[str | None] = mapped_column(Text)
+    # Phase 9: who proposed the current value, whether a human reviewed it, and how it was checked
+    origin: Mapped[str] = mapped_column(String(8), nullable=False, server_default="manual")
+    review_status: Mapped[str] = mapped_column(String(12), nullable=False, server_default="unreviewed")
+    extraction_version: Mapped[str | None] = mapped_column(String(48))  # prompt/extractor version (AI values)
+    pages_inspected: Mapped[list[int]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    validation: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     row_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     created_at: Mapped[datetime] = now_col()
     updated_at: Mapped[datetime] = now_col()
     __table_args__ = (
         UniqueConstraint("paper_id", "extraction_schema_id", "field_key", name="uq_evidence_items_paper_schema_field"),
         CheckConstraint("status in " + _in(EVIDENCE_STATUSES), name="status"),
+        CheckConstraint("origin in " + _in(EVIDENCE_ORIGINS), name="origin"),
+        CheckConstraint("review_status in " + _in(EVIDENCE_REVIEW_STATUSES), name="review_status"),
         CheckConstraint(
             "status != 'found' OR (value IS NOT NULL)",
             name="found_has_value",
         ),
         Index("ix_evidence_items_project_schema", "project_id", "extraction_schema_id"),
         Index("ix_evidence_items_paper", "paper_id"),
+    )
+
+
+# ---------- Phase 9: evidence extraction history and downstream outputs ----------
+
+
+class EvidenceItemRevision(Base):
+    """Append-only snapshot of every change to an evidence item (AI extraction, manual edit, approval, rerun).
+    `revision` equals the item's `row_version` after the change. Never updated or deleted while the item exists
+    (DB trigger); earlier extraction versions therefore stay inspectable after edits and reruns."""
+
+    __tablename__ = "evidence_item_revisions"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    evidence_item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("evidence_items.id", ondelete="CASCADE"), nullable=False
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    before: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    after: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # NULL = background extraction
+    model_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("model_runs.id", ondelete="SET NULL")
+    )
+    reason: Mapped[str | None] = mapped_column(Text)
+    at: Mapped[datetime] = now_col()
+    __table_args__ = (
+        UniqueConstraint("evidence_item_id", "revision", name="uq_evidence_item_revisions_item_revision"),
+        Index("ix_evidence_item_revisions_project", "project_id"),
+    )
+
+
+class EvidenceOutput(Base):
+    """Something produced from evidence items (currently: an evidence-table CSV export). Together with
+    `evidence_output_items` it answers "which outputs used this claim, and are they stale?"."""
+
+    __tablename__ = "evidence_outputs"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    extraction_schema_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("extraction_schemas.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    item_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = now_col()
+    __table_args__ = (
+        CheckConstraint("kind in " + _in(EVIDENCE_OUTPUT_KINDS), name="kind"),
+        Index("ix_evidence_outputs_project_created", "project_id", "created_at"),
+    )
+
+
+class EvidenceOutputItem(Base):
+    """Which revision of which evidence item an output was generated from."""
+
+    __tablename__ = "evidence_output_items"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    evidence_output_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("evidence_outputs.id", ondelete="CASCADE"), nullable=False
+    )
+    evidence_item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("evidence_items.id", ondelete="CASCADE"), nullable=False
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("evidence_output_id", "evidence_item_id", name="uq_evidence_output_items_output_item"),
+        Index("ix_evidence_output_items_item", "evidence_item_id"),
+    )
+
+
+class LlmConsent(Base):
+    """Gate G3 (provider-data-handling.md): the project owner consented, after seeing the versioned notice, to sending
+    private document text to one provider/model. Revoking sets `revoked_at`; rows are never deleted while the project
+    exists, so the consent history stays auditable."""
+
+    __tablename__ = "llm_consents"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(120), nullable=False)
+    data_class: Mapped[str] = mapped_column(String(24), nullable=False)
+    terms_record_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    notice_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    consented_at: Mapped[datetime] = now_col()
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("data_class in ('public_metadata','private_document')", name="data_class"),
+        Index(
+            "uq_llm_consents_active",
+            "project_id",
+            "provider",
+            "model",
+            "data_class",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+        ),
     )

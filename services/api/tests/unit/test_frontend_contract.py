@@ -43,3 +43,15 @@ def test_frontend_frameworks_match_backend():
     for fw in FRAMEWORKS.values():
         for e in fw.elements:
             assert f'{{ key: "{e.key}", label: "{e.label}" }}' in src, (fw.key, e.key)
+
+
+def test_frontend_evidence_statuses_match_backend():
+    from app.db.models import EVIDENCE_REVIEW_STATUSES, EVIDENCE_STATUSES
+
+    src = (WEB / "types.ts").read_text()
+    m = re.search(r"export type EvidenceStatus =([^;]+);", src)
+    assert m, "EvidenceStatus union not found in types.ts"
+    assert sorted(re.findall(r'"([a-z_]+)"', m.group(1))) == sorted(EVIDENCE_STATUSES)
+    r = re.search(r"export type EvidenceReviewStatus =([^;]+);", src)
+    assert r, "EvidenceReviewStatus union not found in types.ts"
+    assert sorted(re.findall(r'"([a-z_]+)"', r.group(1))) == sorted(EVIDENCE_REVIEW_STATUSES)

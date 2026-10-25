@@ -19,7 +19,9 @@ from app.db.models import (
     EVIDENCE_STATUSES,
     DocumentPage,
     EvidenceItem,
+    EvidenceItemRevision,
     ExtractionSchema,
+    PaperDocument,
     PaperRecord,
     Project,
 )
@@ -253,6 +255,129 @@ def schema_view(s: ExtractionSchema) -> dict[str, Any]:
 
 # ---------- evidence items ----------
 
+REVIEWED = ("approved", "edited")
+
+
+def snapshot(e: EvidenceItem) -> dict[str, Any]:
+    """What a revision records about an evidence item (JSON-safe)."""
+    return {
+        "status": e.status,
+        "value": e.value,
+        "excerpt": e.excerpt,
+        "document_page_id": str(e.document_page_id) if e.document_page_id else None,
+        "origin": e.origin,
+        "review_status": e.review_status,
+        "note": e.note,
+        "validation": list(e.validation or []),
+        "pages_inspected": list(e.pages_inspected or []),
+        "extraction_version": e.extraction_version,
+        "model_run_id": str(e.model_run_id) if e.model_run_id else None,
+        "reviewer_id": str(e.reviewer_id) if e.reviewer_id else None,
+    }
+
+
+def write_item(
+    db: Session,
+    project: Project,
+    *,
+    paper_id: uuid.UUID,
+    schema_id: uuid.UUID,
+    field_key: str,
+    values: dict[str, Any],
+    action: str,
+    actor_id: uuid.UUID | None,
+    model_run_id: uuid.UUID | None = None,
+    reason: str | None = None,
+    expected_row_version: int | None = None,
+) -> EvidenceItem:
+    """Insert or update one evidence item and append its revision (no commit). `values` holds column values."""
+    existing = db.scalar(
+        select(EvidenceItem)
+        .where(
+            EvidenceItem.paper_id == paper_id,
+            EvidenceItem.extraction_schema_id == schema_id,
+            EvidenceItem.field_key == field_key,
+        )
+        .with_for_update()
+    )
+    before: dict[str, Any] | None = None
+    if existing is not None:
+        if expected_row_version is not None and existing.row_version != expected_row_version:
+            raise Conflict("Evidence item was changed elsewhere.", code="version_conflict")
+        before = snapshot(existing)
+        for k, v in values.items():
+            setattr(existing, k, v)
+        existing.model_run_id = model_run_id
+        existing.updated_at = _now()
+        existing.row_version += 1
+        item = existing
+    else:
+        item = EvidenceItem(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            paper_id=paper_id,
+            extraction_schema_id=schema_id,
+            field_key=field_key,
+            model_run_id=model_run_id,
+            row_version=1,
+            **values,
+        )
+        db.add(item)
+    db.flush()
+    db.add(
+        EvidenceItemRevision(
+            project_id=project.id,
+            evidence_item_id=item.id,
+            revision=item.row_version,
+            action=action,
+            before=before,
+            after=snapshot(item),
+            actor_id=actor_id,
+            model_run_id=model_run_id,
+            reason=reason,
+        )
+    )
+    db.flush()
+    return item
+
+
+def resolve_page(
+    db: Session,
+    project: Project,
+    paper_id: uuid.UUID,
+    *,
+    document_page_id: uuid.UUID | None = None,
+    document_id: uuid.UUID | None = None,
+    page_no: int | None = None,
+) -> DocumentPage | None:
+    """The cited page, which must belong to this project and to a document linked to this paper. A (document, page_no)
+    pair resolves to the document's CURRENT extraction."""
+    if document_page_id is None and (document_id is None or page_no is None):
+        return None
+    q = (
+        select(DocumentPage, PaperDocument)
+        .join(PaperDocument, PaperDocument.id == DocumentPage.document_id)
+        .where(DocumentPage.project_id == project.id)
+    )
+    if document_page_id is not None:
+        q = q.where(DocumentPage.id == document_page_id)
+    else:
+        q = q.where(
+            DocumentPage.document_id == document_id,
+            DocumentPage.page_no == page_no,
+            DocumentPage.text_version == PaperDocument.text_version,
+        )
+    row = db.execute(q).first()
+    if row is None:
+        raise NotFound("Document page not found.")
+    page, doc = row
+    if doc.paper_id != paper_id:
+        raise ValidationFailed(
+            "The cited page belongs to a document that is not linked to this paper.",
+            details=[{"field": "document_page_id", "issue": "other_paper"}],
+        )
+    return page
+
 
 def upsert_evidence(
     db: Session,
@@ -265,38 +390,29 @@ def upsert_evidence(
     value: Any | None = None,
     excerpt: str | None = None,
     document_page_id: uuid.UUID | None = None,
+    document_id: uuid.UUID | None = None,
+    page_no: int | None = None,
     reviewer_id: uuid.UUID | None = None,
     model_run_id: uuid.UUID | None = None,
     note: str | None = None,
+    reason: str | None = None,
     expected_row_version: int | None = None,
 ) -> EvidenceItem:
-    """Create or update one evidence item. Checks excerpt occurs verbatim in cited page."""
+    """Manual create/edit of one evidence item by a reviewer. The excerpt must occur verbatim in the cited page, which
+    must belong to a document linked to this paper. Every change is kept as a revision; the item becomes
+    origin=manual, review_status=edited."""
+    from app.extraction.extractor import numeric_warnings
+
     if status not in EVIDENCE_STATUSES:
         raise ValidationFailed(f"Unknown status '{status}'.")
     if status == "found" and value is None:
         raise ValidationFailed("A value is required when status is 'found'.")
-    if status == "unavailable" and document_page_id is not None:
+    if status == "unavailable" and (document_page_id is not None or document_id is not None):
         raise ValidationFailed("Cannot cite a page when full text is unavailable.")
+    if status == "ambiguous" and not (note or "").strip():
+        raise ValidationFailed("Explain in the note why the evidence is ambiguous.")
 
-    # verify excerpt
-    if excerpt and document_page_id:
-        page = db.scalar(select(DocumentPage).where(DocumentPage.id == document_page_id))
-        if page is None:
-            raise NotFound("Document page not found.")
-        if excerpt not in (page.text or ""):
-            raise ValidationFailed(
-                "The excerpt does not occur verbatim in the cited page. Copy it exactly from the page text.",
-                details=[{"field": "excerpt", "issue": "not_found_in_page"}],
-            )
-
-    schema = db.scalar(
-        select(ExtractionSchema).where(
-            ExtractionSchema.id == schema_id,
-            ExtractionSchema.project_id == project.id,
-        )
-    )
-    if schema is None:
-        raise NotFound("Extraction schema not found.")
+    schema = get_schema(db, project, schema_id)
     paper = db.scalar(select(PaperRecord).where(PaperRecord.id == paper_id, PaperRecord.project_id == project.id))
     if paper is None:
         raise NotFound("Paper not found.")
@@ -304,49 +420,108 @@ def upsert_evidence(
     if field_key not in field_keys:
         raise ValidationFailed(f"Field key '{field_key}' is not defined in this schema.")
 
-    existing = db.scalar(
-        select(EvidenceItem).where(
-            EvidenceItem.paper_id == paper_id,
-            EvidenceItem.extraction_schema_id == schema_id,
-            EvidenceItem.field_key == field_key,
-        )
+    page = resolve_page(
+        db, project, paper_id, document_page_id=document_page_id, document_id=document_id, page_no=page_no
     )
-    now = _now()
-    if existing:
-        if expected_row_version is not None and existing.row_version != expected_row_version:
-            raise Conflict("Evidence item was changed elsewhere.", code="version_conflict")
-        existing.status = status
-        existing.value = value
-        existing.excerpt = excerpt
-        existing.document_page_id = document_page_id
-        existing.reviewer_id = reviewer_id
-        existing.model_run_id = model_run_id
-        existing.note = note
-        existing.updated_at = now
-        existing.row_version += 1
-        item = existing
-    else:
-        item = EvidenceItem(
-            id=uuid.uuid4(),
-            project_id=project.id,
-            paper_id=paper_id,
-            extraction_schema_id=schema_id,
-            field_key=field_key,
-            status=status,
-            value=value,
-            excerpt=excerpt,
-            document_page_id=document_page_id,
-            reviewer_id=reviewer_id,
-            model_run_id=model_run_id,
-            note=note,
+    if excerpt and page is not None and excerpt not in (page.text or ""):
+        raise ValidationFailed(
+            "The excerpt does not occur verbatim in the cited page. Copy it exactly from the page text.",
+            details=[{"field": "excerpt", "issue": "not_found_in_page"}],
         )
-        db.add(item)
+    if excerpt and page is None:
+        raise ValidationFailed("Cite the page the excerpt was copied from.", details=[{"field": "document_page_id"}])
+    warnings = numeric_warnings(value, excerpt) if status == "found" else []
+    if status == "found" and not excerpt:
+        warnings = [w for w in warnings if w["code"] != "no_source_excerpt"]
+        warnings.append({"code": "no_source_excerpt", "message": "No source excerpt or page is cited for this value."})
+    item = write_item(
+        db,
+        project,
+        paper_id=paper_id,
+        schema_id=schema_id,
+        field_key=field_key,
+        values={
+            "status": status,
+            "value": value,
+            "excerpt": excerpt or None,
+            "document_page_id": page.id if page is not None else None,
+            "reviewer_id": reviewer_id,
+            "note": note,
+            "origin": "manual",
+            "review_status": "edited",
+            "validation": warnings,
+        },
+        action="manual_edit",
+        actor_id=reviewer_id,
+        model_run_id=model_run_id,
+        reason=reason,
+        expected_row_version=expected_row_version,
+    )
+    audit_service.record(
+        db,
+        action="evidence.edited",
+        entity_type="evidence_item",
+        entity_id=item.id,
+        actor_id=reviewer_id,
+        project_id=project.id,
+        after={"field_key": field_key, "status": status, "revision": item.row_version},
+    )
     db.commit()
     db.refresh(item)
     return item
 
 
-def evidence_view(e: EvidenceItem) -> dict[str, Any]:
+def approve_evidence(
+    db: Session,
+    project: Project,
+    *,
+    schema_id: uuid.UUID,
+    paper_id: uuid.UUID,
+    field_key: str,
+    reviewer_id: uuid.UUID,
+    expected_row_version: int | None = None,
+) -> EvidenceItem:
+    """A reviewer confirms the current value (typically an AI proposal) after checking it against the source."""
+    get_schema(db, project, schema_id)
+    item = db.scalar(
+        select(EvidenceItem).where(
+            EvidenceItem.project_id == project.id,
+            EvidenceItem.extraction_schema_id == schema_id,
+            EvidenceItem.paper_id == paper_id,
+            EvidenceItem.field_key == field_key,
+        )
+    )
+    if item is None:
+        raise NotFound("Evidence item not found.")
+    if item.status == "pending":
+        raise Conflict("There is no value to approve yet.", code="nothing_to_approve")
+    item = write_item(
+        db,
+        project,
+        paper_id=paper_id,
+        schema_id=schema_id,
+        field_key=field_key,
+        values={"review_status": "approved", "reviewer_id": reviewer_id},
+        action="approved",
+        actor_id=reviewer_id,
+        model_run_id=item.model_run_id,
+        expected_row_version=expected_row_version,
+    )
+    audit_service.record(
+        db,
+        action="evidence.approved",
+        entity_type="evidence_item",
+        entity_id=item.id,
+        actor_id=reviewer_id,
+        project_id=project.id,
+        after={"field_key": field_key, "revision": item.row_version},
+    )
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def evidence_view(e: EvidenceItem, page: DocumentPage | None = None) -> dict[str, Any]:
     return {
         "id": e.id,
         "paper_id": e.paper_id,
@@ -355,13 +530,39 @@ def evidence_view(e: EvidenceItem) -> dict[str, Any]:
         "value": e.value,
         "excerpt": e.excerpt,
         "document_page_id": e.document_page_id,
+        "document_id": page.document_id if page is not None else None,
+        "page_no": page.page_no if page is not None else None,
         "reviewer_id": e.reviewer_id,
         "model_run_id": e.model_run_id,
         "note": e.note,
+        "origin": e.origin,
+        "review_status": e.review_status,
+        "extraction_version": e.extraction_version,
+        "pages_inspected": list(e.pages_inspected or []),
+        "validation": list(e.validation or []),
         "row_version": e.row_version,
         "created_at": e.created_at,
         "updated_at": e.updated_at,
     }
+
+
+def included_paper_ids(db: Session, project: Project) -> list[uuid.UUID]:
+    """Papers included at full text; projects not yet at full text fall back to title/abstract inclusions."""
+    from app.db.models import ScreeningState
+
+    for stage in ("full_text", "title_abstract"):
+        ids = list(
+            db.scalars(
+                select(ScreeningState.paper_id).where(
+                    ScreeningState.project_id == project.id,
+                    ScreeningState.stage == stage,
+                    ScreeningState.decision == "include",
+                )
+            )
+        )
+        if ids:
+            return ids
+    return []
 
 
 def coverage_by_question(db: Session, project: Project, schema: ExtractionSchema) -> dict[str, Any]:
@@ -372,33 +573,12 @@ def coverage_by_question(db: Session, project: Project, schema: ExtractionSchema
       found         — evidence was extracted
       not_located   — full text was read but the information was not found
       unavailable   — no full text (never confuse with not_located)
+      ambiguous     — the text is contradictory or unclear (Phase 9)
       pending       — not yet extracted
     """
     from sqlalchemy import func
 
-    from app.db.models import ScreeningState
-
-    # included papers (full_text included state OR ta_included with no full_text stage)
-    included_papers = list(
-        db.scalars(
-            select(ScreeningState.paper_id).where(
-                ScreeningState.project_id == project.id,
-                ScreeningState.stage == "full_text",
-                ScreeningState.decision == "include",
-            )
-        )
-    )
-    if not included_papers:
-        # fall back to ta-included for projects not yet at full-text stage
-        included_papers = list(
-            db.scalars(
-                select(ScreeningState.paper_id).where(
-                    ScreeningState.project_id == project.id,
-                    ScreeningState.stage == "title_abstract",
-                    ScreeningState.decision == "include",
-                )
-            )
-        )
+    included_papers = included_paper_ids(db, project)
 
     q_map: dict[str, list[str]] = schema.question_map or {}  # {field_key: [question_id, ...]}
     all_fields = {fd["field_key"]: fd for fd in (schema.field_definitions or [])}
@@ -434,7 +614,8 @@ def coverage_by_question(db: Session, project: Project, schema: ExtractionSchema
         n_found = fc.get("found", 0)
         n_not_located = fc.get("not_located", 0)
         n_unavailable = fc.get("unavailable", 0)
-        n_pending = n_included - n_found - n_not_located - n_unavailable - fc.get("not_applicable", 0)
+        n_ambiguous = fc.get("ambiguous", 0)
+        n_pending = n_included - n_found - n_not_located - n_unavailable - n_ambiguous - fc.get("not_applicable", 0)
         return {
             "field_key": field_key,
             "label": all_fields.get(field_key, {}).get("label", field_key),
@@ -442,6 +623,7 @@ def coverage_by_question(db: Session, project: Project, schema: ExtractionSchema
             "found": n_found,
             "not_located": n_not_located,
             "unavailable": n_unavailable,
+            "ambiguous": n_ambiguous,
             "pending": max(n_pending, 0),
         }
 

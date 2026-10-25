@@ -695,7 +695,14 @@ export interface ExtractionSchema {
   updated_at: string;
   field_count: number;
 }
-export type EvidenceStatus = "pending" | "found" | "not_located" | "unavailable" | "not_applicable";
+export type EvidenceStatus =
+  "pending" | "found" | "not_located" | "ambiguous" | "unavailable" | "not_applicable";
+export type EvidenceReviewStatus = "unreviewed" | "approved" | "edited";
+export type EvidenceOrigin = "manual" | "ai" | "system";
+export interface ValidationWarning {
+  code: string;
+  message: string;
+}
 export interface EvidenceItem {
   id: string;
   paper_id: string;
@@ -704,11 +711,109 @@ export interface EvidenceItem {
   value: unknown;
   excerpt: string | null;
   document_page_id: string | null;
+  document_id: string | null;
+  page_no: number | null;
   reviewer_id: string | null;
+  model_run_id: string | null;
   note: string | null;
+  origin: EvidenceOrigin;
+  review_status: EvidenceReviewStatus;
+  extraction_version: string | null;
+  pages_inspected: number[];
+  validation: ValidationWarning[];
   row_version: number;
   created_at: string;
   updated_at: string;
+}
+export interface EvidenceTableRow {
+  paper: {
+    id: string;
+    title: string;
+    year: number | null;
+    doi: string | null;
+    first_author: string;
+    full_text_status: string;
+    included: boolean;
+    document_id: string | null;
+  };
+  cells: Record<string, EvidenceItem>;
+}
+export interface EvidenceTable {
+  schema_id: string;
+  schema_version: number;
+  schema_status: "draft" | "approved";
+  fields: FieldDefinition[];
+  total: number;
+  offset: number;
+  limit: number;
+  status_counts: Record<string, number>;
+  needs_review: number;
+  rows: EvidenceTableRow[];
+}
+export interface EvidenceRevision {
+  revision: number;
+  action: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown>;
+  actor_id: string | null;
+  model_run_id: string | null;
+  reason: string | null;
+  at: string;
+}
+export interface EvidenceHistory {
+  item: EvidenceItem | null;
+  revisions: EvidenceRevision[];
+  outputs: { id: string; kind: string; created_at: string; revision: number; stale: boolean }[];
+  source_page: {
+    document_id: string;
+    filename: string;
+    page_no: number;
+    text_version: number;
+    is_current_text: boolean;
+    text: string;
+  } | null;
+  model_run: {
+    id: string;
+    provider: string;
+    model: string;
+    prompt_version: string;
+    created_at: string;
+  } | null;
+}
+export interface ConsentStatus {
+  provider: string | null;
+  model: string | null;
+  configured: boolean;
+  operator_allows_documents: boolean;
+  terms_reviewed: boolean;
+  terms_record_version: string | null;
+  notice_version: string;
+  notice: string;
+  consent: { id: string; consented_at: string; terms_record_version: string } | null;
+  can_send_documents: boolean;
+  blocked_reason: string | null;
+}
+export interface ExtractionRunStatus {
+  schema_id: string;
+  schema_status: string;
+  prompt_version: string;
+  consent: ConsentStatus;
+  included_papers: number;
+  active_job_id: string | null;
+  last_result: (Record<string, unknown> & { message?: string | null; stop_reason?: string | null }) | null;
+  last_error: string | null;
+}
+export interface AffectedOutputs {
+  schema_id: string;
+  stale_outputs: { id: string; kind: string; created_at: string; changed_items: number }[];
+  superseded_schema: {
+    schema_id: string;
+    version: number;
+    diff: { added: string[]; removed: string[]; changed: string[] };
+    evidence_items: number;
+    outputs: number;
+    rerun_fields: string[];
+  } | null;
 }
 export interface FieldCoverage {
   field_key: string;
@@ -717,6 +822,7 @@ export interface FieldCoverage {
   found: number;
   not_located: number;
   unavailable: number;
+  ambiguous: number;
   pending: number;
 }
 export interface SchemaCoverage {

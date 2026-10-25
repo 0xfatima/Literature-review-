@@ -24,6 +24,7 @@ const STATUS_LABELS: Record<string, string> = {
   found: "Found",
   not_located: "Not located",
   unavailable: "No full text",
+  ambiguous: "Ambiguous",
   not_applicable: "N/A",
   pending: "Pending",
 };
@@ -32,6 +33,7 @@ const STATUS_COLORS: Record<string, string> = {
   found: "text-ok",
   not_located: "text-mark",
   unavailable: "text-muted",
+  ambiguous: "text-danger",
   not_applicable: "text-muted",
   pending: "text-muted",
 };
@@ -46,6 +48,7 @@ function CoverageBar({ cov }: { cov: FieldCoverage }) {
           found: cov.found,
           not_located: cov.not_located,
           unavailable: cov.unavailable,
+          ambiguous: cov.ambiguous,
           pending: cov.pending,
         })
           .filter(([, n]) => n > 0)

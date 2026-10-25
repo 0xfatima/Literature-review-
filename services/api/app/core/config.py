@@ -72,7 +72,16 @@ class Settings(BaseSettings):
     llm_batch_size: int = 10  # papers per relevance request (fewer requests = less quota)
     llm_max_papers_per_job: int = 300
     relevance_job_budget_s: float = 780.0
+    # Phase 9 private-document gates (docs/architecture/provider-data-handling.md). G2: an operator records the
+    # provider-terms review; empty = not reviewed, so document text is never sent.
+    llm_terms_record_version: str = ""
+    llm_terms_reviewed_on: str = ""  # ISO date of the review
+    llm_terms_review_interval_days: int = 365
+    extraction_job_budget_s: float = 780.0
+    extraction_chunk_chars: int = 24000  # document text per AI request (pages are never split)
+    extraction_max_papers_per_job: int = 50
     rate_limit_relevance_per_hour: int = 20
+    rate_limit_extraction_per_hour: int = 10
     # Screening (Phase 5). Title/abstract: an exclusion reason is encouraged; set true to require one.
     screening_ta_require_exclusion_reason: bool = False
 

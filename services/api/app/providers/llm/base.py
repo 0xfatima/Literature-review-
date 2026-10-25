@@ -3,8 +3,9 @@
 Only `LLMGateway` is used by services. It enforces the data-handling policy
 (docs/architecture/provider-data-handling.md):
   * `public_metadata` (titles, abstracts, bibliographic fields, protocol text) may be sent when an LLM is configured;
-  * `private_document` (uploaded PDFs and text derived from them) is refused unless LLM_SEND_PRIVATE_DOCUMENTS=true
-    (and the consent gates of later phases pass). Phase 5 sends public metadata only.
+  * `private_document` (uploaded PDFs and text derived from them) is refused unless ALL gates pass (Phase 9):
+    G1 LLM_SEND_PRIVATE_DOCUMENTS=true, G2 a reviewed, unexpired provider terms record (`terms_reviewed`), and
+    G3 a `ConsentToken` for this provider/model, built by the caller from an active `llm_consents` row.
 Every call is described by an LLMResult that the caller stores in `model_runs` (provider, model, prompt version,
 tokens, duration, status), success or failure.
 """
@@ -51,11 +52,36 @@ class LLMProvider(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class ConsentToken:
+    """Proof (read from `llm_consents` by the caller) that the project owner consented to sending private document
+    text to exactly this provider and model."""
+
+    consent_id: str
+    provider: str
+    model: str
+
+
 @dataclass
 class LLMGateway:
     provider: LLMProvider | None
     send_private_documents: bool = False
+    terms_reviewed: bool = False
     calls: list[LLMResult] = field(default_factory=list)
+
+    def private_document_block(self, consent: ConsentToken | None) -> str | None:
+        """None when private document text may be sent; otherwise a short user-safe reason."""
+        if self.provider is None:
+            return "No AI model is configured on this server."
+        if not self.send_private_documents:
+            return (
+                "Sending uploaded documents to an AI provider is disabled on this server (LLM_SEND_PRIVATE_DOCUMENTS)."
+            )
+        if not self.terms_reviewed:
+            return "The AI provider's data-use terms have not been reviewed by the operator (LLM_TERMS_RECORD_*)."
+        if consent is None or consent.provider != self.provider.name or consent.model != self.provider.model:
+            return "The project owner has not consented to sending document text to this AI provider and model."
+        return None
 
     @property
     def available(self) -> bool:
@@ -70,13 +96,16 @@ class LLMGateway:
         schema: dict[str, Any],
         temperature: float = 0.0,
         max_output_tokens: int = 4096,
+        consent: ConsentToken | None = None,
     ) -> LLMResult:
         if data_class not in DATA_CLASSES:
             raise LLMError("refused", f"unknown data class {data_class!r}")
         if self.provider is None:
             raise LLMError("not_configured", "No AI model is configured on this server.")
-        if data_class == "private_document" and not self.send_private_documents:
-            raise LLMError("refused", "Sending private documents to an AI provider is disabled on this server.")
+        if data_class == "private_document":
+            block = self.private_document_block(consent)
+            if block is not None:
+                raise LLMError("refused", block)
         start = time.monotonic()
         result = self.provider.generate_json(
             system=system, prompt=prompt, schema=schema, temperature=temperature, max_output_tokens=max_output_tokens
