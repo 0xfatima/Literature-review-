@@ -197,6 +197,36 @@ def document_process(job_id: str) -> str:
         reset_correlation_id(token)
 
 
+@celery_app.task(name="extraction.run")
+def extraction_run(job_id: str) -> str:
+    """AI evidence extraction with provenance. All logic is in app.services.extraction_service."""
+    from app.services import extraction_service
+
+    configure_logging(get_settings().log_level)
+    token = set_correlation_id(new_correlation_id())
+    try:
+        jid = uuid.UUID(job_id)
+        with get_sessionmaker()() as db:
+            if not repo.claim(db, jid):
+                db.rollback()
+                log.info("duplicate/late delivery ignored", extra={"job_id": job_id})
+                return "ignored"
+            db.commit()
+            job = repo.get_by_id(db, jid)
+            if job is None:
+                return "ignored"
+            try:
+                return extraction_service.execute(db, job, get_settings())
+            except Exception as e:  # noqa: BLE001  end visibly; papers committed so far are kept
+                db.rollback()
+                log.exception("extraction job failed", extra={"job_id": job_id})
+                repo.finish(db, jid, fsm.RUNNING, fsm.FAILED, error=f"Evidence extraction failed ({type(e).__name__}).")
+                db.commit()
+                return "failed"
+    finally:
+        reset_correlation_id(token)
+
+
 @celery_app.task(name="system.purge_documents")
 def purge_documents() -> dict[str, int]:
     """Retention and orphan sweep for stored files (scheduled by beat)."""

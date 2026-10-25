@@ -10,6 +10,7 @@ import SearchPanel from "@/components/search/SearchPanel";
 import PapersPanel from "@/components/papers/PapersPanel";
 import DocumentsPanel from "@/components/documents/DocumentsPanel";
 import PrismaFlowPanel from "@/components/prisma/PrismaFlowPanel";
+import EvidenceTablePanel from "@/components/extraction/EvidenceTablePanel";
 import ExtractionPanel from "@/components/extraction/ExtractionPanel";
 import ScreeningPanel from "@/components/screening/ScreeningPanel";
 import { useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
@@ -329,10 +330,7 @@ export default function Workspace({
           <ExtractionPanel projectId={project.id} canWrite={project.archived_at === null} />
         )}
         {tab === "tables" && (
-          <Empty title="No tables yet">
-            The evidence matrix and comparison tables are built from data extracted from included papers, each
-            value linked to its page and passage.
-          </Empty>
+          <EvidenceTablePanel projectId={project.id} canWrite={project.archived_at === null} />
         )}
         {tab === "artifacts" && (
           <Empty title="No artifacts yet">

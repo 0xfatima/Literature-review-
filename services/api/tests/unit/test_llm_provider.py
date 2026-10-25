@@ -138,3 +138,41 @@ def test_describe_and_build_gateway_never_expose_the_key():
     off = S()
     off.llm_provider = "none"
     assert not describe(off)["configured"] and not build_gateway(off).available
+
+
+def test_private_documents_need_all_three_gates():
+    from app.providers.llm import terms_record_ok
+    from app.providers.llm.base import ConsentToken
+
+    llm = FakeLLM()
+    good = ConsentToken("c1", llm.name, llm.model)
+    cases = [
+        (LLMGateway(llm, send_private_documents=False, terms_reviewed=True), good, "LLM_SEND_PRIVATE_DOCUMENTS"),
+        (LLMGateway(llm, send_private_documents=True, terms_reviewed=False), good, "terms"),
+        (LLMGateway(llm, send_private_documents=True, terms_reviewed=True), None, "consented"),
+        (
+            LLMGateway(llm, send_private_documents=True, terms_reviewed=True),
+            ConsentToken("c1", llm.name, "other-model"),
+            "consented",
+        ),
+    ]
+    for gw, token, needle in cases:
+        with pytest.raises(LLMError) as e:
+            gw.generate_json(data_class="private_document", system="s", prompt="--- P1\nx", schema={}, consent=token)
+        assert e.value.kind == "refused" and needle in e.value.message
+    gw = LLMGateway(llm, send_private_documents=True, terms_reviewed=True)
+    assert gw.private_document_block(good) is None
+    assert gw.generate_json(data_class="private_document", system="s", prompt="--- P1\nx", schema={}, consent=good)
+
+    from datetime import date
+
+    class T:
+        llm_terms_record_version = "v1"
+        llm_terms_reviewed_on = "2026-01-01"
+        llm_terms_review_interval_days = 365
+
+    assert terms_record_ok(T(), date(2026, 6, 1))
+    assert not terms_record_ok(T(), date(2027, 6, 1))  # review expired
+    assert not terms_record_ok(T(), date(2025, 6, 1))  # dated in the future
+    T.llm_terms_record_version = ""
+    assert not terms_record_ok(T(), date(2026, 6, 1))

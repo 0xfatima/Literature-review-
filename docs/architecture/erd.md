@@ -39,6 +39,10 @@ erDiagram
   document_pages ||--o{ evidence_items : sourced_from
   evidence_items ||--o{ evidence_item_revisions : history
   model_runs ||--o{ evidence_items : proposed_by
+  projects ||--o{ evidence_outputs : exports
+  extraction_schemas ||--o{ evidence_outputs : from
+  evidence_outputs ||--o{ evidence_output_items : used
+  evidence_items ||--o{ evidence_output_items : used_in
   paper_records ||--o{ appraisal_records : appraised
   projects ||--o{ synthesis_versions : versions
   projects ||--o{ draft_versions : versions
@@ -245,27 +249,50 @@ erDiagram
   }
   evidence_items {
     uuid id PK
+    uuid project_id FK
     uuid paper_id FK
     uuid extraction_schema_id FK
     string field_key
     jsonb value
     string status
     uuid document_page_id FK
-    string section
     text excerpt
     uuid model_run_id FK
-    uuid reviewer_id
-    string review_state
+    uuid reviewer_id FK
+    string origin
+    string review_status
+    string extraction_version
+    jsonb pages_inspected
+    jsonb validation
     int row_version
   }
   evidence_item_revisions {
     uuid id PK
+    uuid project_id FK
     uuid evidence_item_id FK
+    int revision
+    string action
     jsonb before
     jsonb after
     uuid actor_id
+    uuid model_run_id FK
     text reason
     timestamptz at
+  }
+  evidence_outputs {
+    uuid id PK
+    uuid project_id FK
+    uuid extraction_schema_id FK
+    string kind
+    uuid created_by
+    int item_count
+    timestamptz created_at
+  }
+  evidence_output_items {
+    uuid id PK
+    uuid evidence_output_id FK
+    uuid evidence_item_id FK
+    int revision
   }
   appraisal_records {
     uuid id PK
@@ -310,9 +337,10 @@ erDiagram
     uuid project_id FK
     uuid user_id FK
     string provider
-    string model_id
+    string model
     string data_class
     string terms_record_version
+    string notice_version
     timestamptz consented_at
     timestamptz revoked_at
   }
@@ -388,7 +416,10 @@ erDiagram
 | `paper_documents` | unique `(paper_id, sha256)` | no duplicate uploads |
 | `document_pages` | unique `(document_id, page_no, text_version)` | provenance |
 | `screening_decisions` | index `(paper_id, stage, protocol_version_id)`; CHECK `stage='full_text' AND decision='exclude' ⇒ exclusion_reason IS NOT NULL` | spec §3.6 |
-| `evidence_items` | unique `(paper_id, extraction_schema_id, field_key)`; CHECK `status='extracted' ⇒ excerpt IS NOT NULL AND document_page_id IS NOT NULL` (with explicit exceptions enumerated in code) | provenance (rule 9) |
+| `evidence_items` | unique `(paper_id, extraction_schema_id, field_key)`; CHECK `status='found' ⇒ value IS NOT NULL`; excerpt must occur in the cited page of a document linked to the paper (service layer; AI quotes are located and stored as the exact source substring) | provenance (rule 9) |
+| `evidence_item_revisions` | unique `(evidence_item_id, revision)`; append-only trigger (deletion only by cascade from the item) | Phase 9 history |
+| `evidence_output_items` | unique `(evidence_output_id, evidence_item_id)`; `revision` < item `row_version` ⇒ output is stale | Phase 9 lineage |
+| `llm_consents` | partial unique `(project_id, provider, model, data_class) WHERE revoked_at IS NULL` | gate G3 |
 | `screening_decision_criteria` | unique `(screening_decision_id, protocol_criterion_id)`; `assessment` in `met\|not_met\|unclear` | criterion-level rationale (spec §3.6) |
 | `jobs` | partial unique `(owner_id, request_key) WHERE request_key IS NOT NULL`; partial unique `(owner_id, type, COALESCE(project_id, zero-uuid), input_fingerprint) WHERE status IN ('queued','running')` | replay-safe submission **and** no duplicate in-flight work, **without** blocking legitimate reruns (A5) |
 | `audit_events` | indexes `(project_id, at)`, `(actor_id, at)`; **no foreign keys**; BEFORE UPDATE/DELETE row trigger and BEFORE TRUNCATE statement trigger raise | append-only for every DB role; events outlive deleted projects |

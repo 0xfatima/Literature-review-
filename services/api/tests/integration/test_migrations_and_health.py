@@ -26,6 +26,11 @@ EXPECTED = {
     "record_status_events",
     "extraction_schemas",
     "evidence_items",
+    # Phase 9 (0008)
+    "evidence_item_revisions",
+    "evidence_outputs",
+    "evidence_output_items",
+    "llm_consents",
 }
 
 
@@ -40,6 +45,7 @@ def test_upgrade_downgrade_upgrade_roundtrip():
     with get_engine().connect() as c:  # trigger function must be gone too
         assert c.scalar(text("SELECT count(*) FROM pg_proc WHERE proname='audit_events_block_mutation'")) == 0
         assert c.scalar(text("SELECT count(*) FROM pg_proc WHERE proname='screening_decision_guard'")) == 0
+        assert c.scalar(text("SELECT count(*) FROM pg_proc WHERE proname='evidence_item_revision_guard'")) == 0
     command.upgrade(alembic_cfg(), "head")
     assert EXPECTED <= tables()
     # The downgrade dropped schema lg_checkpoints. This process may already have run LangGraph's checkpointer setup

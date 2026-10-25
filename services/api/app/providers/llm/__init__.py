@@ -2,13 +2,37 @@
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
 
-from app.providers.llm.base import LLMError, LLMGateway, LLMProvider, LLMResult
+from app.providers.llm.base import ConsentToken, LLMError, LLMGateway, LLMProvider, LLMResult
 
-__all__ = ["LLMError", "LLMGateway", "LLMProvider", "LLMResult", "build_gateway", "describe"]
+__all__ = [
+    "ConsentToken",
+    "LLMError",
+    "LLMGateway",
+    "LLMProvider",
+    "LLMResult",
+    "build_gateway",
+    "describe",
+    "terms_record_ok",
+]
+
+
+def terms_record_ok(settings: Any, today: date | None = None) -> bool:
+    """Gate G2: the operator recorded a provider-terms review (version + date) that is not older than the interval."""
+    version = str(getattr(settings, "llm_terms_record_version", "") or "").strip()
+    reviewed = str(getattr(settings, "llm_terms_reviewed_on", "") or "").strip()
+    if not version or not reviewed:
+        return False
+    try:
+        on = date.fromisoformat(reviewed)
+    except ValueError:
+        return False
+    today = today or datetime.now(UTC).date()
+    return on <= today and (today - on).days <= int(getattr(settings, "llm_terms_review_interval_days", 365))
 
 
 def describe(settings: Any) -> dict[str, Any]:
@@ -53,4 +77,8 @@ def build_gateway(settings: Any, *, client: httpx.Client | None = None) -> LLMGa
         min_interval_s=settings.llm_min_interval_s,
         max_retries=settings.llm_max_retries,
     )
-    return LLMGateway(provider, send_private_documents=settings.llm_send_private_documents)
+    return LLMGateway(
+        provider,
+        send_private_documents=settings.llm_send_private_documents,
+        terms_reviewed=terms_record_ok(settings),
+    )

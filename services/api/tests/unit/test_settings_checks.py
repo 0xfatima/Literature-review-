@@ -59,3 +59,10 @@ def test_workflow_debug_delay_is_refused_outside_local_envs():
     problems = find_unsafe_settings({**base, "workflow_debug_node_delay_s": 5})
     assert any("WORKFLOW_DEBUG_NODE_DELAY_S" in p for p in problems)
     assert find_unsafe_settings({**base, "app_env": "test", "workflow_debug_node_delay_s": 5}) == []
+
+
+def test_private_documents_flag_needs_a_reviewed_terms_record():
+    flagged = {**GOOD, "llm_send_private_documents": True}
+    assert any("LLM_TERMS_RECORD_VERSION" in p for p in find_unsafe_settings(flagged))
+    ok = {**flagged, "llm_terms_record_version": "gemini-2026-10", "llm_terms_reviewed_on": "2026-10-01"}
+    assert find_unsafe_settings(ok) == []

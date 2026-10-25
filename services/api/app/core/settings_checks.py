@@ -30,8 +30,13 @@ def find_unsafe_settings(values: Mapping[str, Any]) -> list[str]:
         problems.append("WORKFLOW_DEBUG_NODE_DELAY_S is a test hook and must be 0 outside development/test")
     if int(values.get("search_max_records_per_provider") or 0) > 10_000:
         problems.append("SEARCH_MAX_RECORDS_PER_PROVIDER above 10000 is refused (provider fair-use limits)")
-    if values.get("llm_send_private_documents"):
-        problems.append("LLM_SEND_PRIVATE_DOCUMENTS must stay false until the consent gates are implemented")
+    if values.get("llm_send_private_documents") and not (
+        str(values.get("llm_terms_record_version") or "").strip() and str(values.get("llm_terms_reviewed_on") or "")
+    ):
+        problems.append(
+            "LLM_SEND_PRIVATE_DOCUMENTS=true needs LLM_TERMS_RECORD_VERSION and LLM_TERMS_REVIEWED_ON (a reviewed "
+            "provider terms record; see docs/architecture/provider-data-handling.md)"
+        )
     if str(values.get("storage_backend", "local")).lower() == "memory":
         problems.append("STORAGE_BACKEND=memory is for tests only: the API and the worker cannot share it")
     if str(values.get("malware_scanner", "none")).lower() == "none" and values.get("malware_scan_required"):

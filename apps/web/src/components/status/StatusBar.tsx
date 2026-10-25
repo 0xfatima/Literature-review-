@@ -11,6 +11,7 @@ const JOB_LABELS: Record<string, string> = {
   "search.run": "Scholarly search",
   "relevance.assess": "Relevance assessment",
   "document.process": "Reading PDF",
+  "extraction.run": "Evidence extraction",
 };
 // Mirrors app/jobs/fsm.JOB_TYPES[...]["cancellable"]: the server refuses to cancel these.
 const NOT_CANCELLABLE = new Set(["workflow.advance", "document.process"]);

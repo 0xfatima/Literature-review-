@@ -27,6 +27,7 @@ TASK_FOR_TYPE = {
     "search.run": "search.run",
     "relevance.assess": "relevance.assess",
     "document.process": "document.process",
+    "extraction.run": "extraction.run",
 }
 
 
