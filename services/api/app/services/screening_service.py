@@ -26,7 +26,7 @@ from app.repositories import screening as repo
 from app.repositories import workflows as wf_repo
 from app.screening import decisions as rules
 from app.screening.relevance import BAND_LABELS, BANDS
-from app.services import audit_service, protocol_service, workflow_service
+from app.services import audit_service, prisma_sync, protocol_service, workflow_service
 
 STAGE = "title_abstract"
 MAX_BULK = 200
@@ -311,6 +311,7 @@ def decide(
         return {"decision_id": st.decision_id, "unchanged": True}
     d = _append(db, project, user, pv, paper_id, decision, reason, action="decide", batch_id=None)
     _advance_stage(db, project, user)
+    prisma_sync.on_ta_decision(db, d, pv)
     audit_service.record(
         db,
         action="screening.decided",

@@ -629,3 +629,100 @@ export interface DocumentPageList {
   limit: number;
   items: DocumentPage[];
 }
+
+/* ---------- Phase 7: PRISMA flow ---------- */
+export interface PrismaViolation {
+  id: string; // V1–V11
+  message: string;
+  [key: string]: unknown;
+}
+export interface PrismaFlow {
+  identified_a: number;
+  identified_a_by_source: Record<string, number>;
+  removed_duplicates: number;
+  removed_automation: number;
+  removed_other: number;
+  screened: number;
+  pending_ta: number;
+  ta_excluded: number;
+  ta_included_a: number;
+  identified_b: number;
+  identified_b_by_source: Record<string, number>;
+  ta_included_b: number;
+  sought_retrieval: number;
+  pending_retrieval: number;
+  not_retrieved: number;
+  ft_assessed: number;
+  pending_ft: number;
+  ft_excluded: number;
+  ft_excluded_by_reason: Record<string, number>;
+  included_reports: number;
+  included_studies: number;
+  violations: PrismaViolation[];
+  is_final: boolean;
+  protocol_version_id: string | null;
+}
+export interface FtReason {
+  code: string;
+  label: string;
+  group: string;
+}
+
+/* ---------- Phase 8: extraction schemas ---------- */
+export type FieldType = "text" | "number" | "choice" | "multi_choice" | "boolean" | "date";
+export interface FieldDefinition {
+  field_key: string;
+  label: string;
+  type: FieldType;
+  options?: string[];
+  required?: boolean;
+  hint?: string;
+}
+export interface ExtractionSchema {
+  id: string;
+  version: number;
+  status: "draft" | "approved";
+  field_definitions: FieldDefinition[];
+  question_map: Record<string, string[]>;
+  notes: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  change_reason: string | null;
+  supersedes_id: string | null;
+  created_by: string | null;
+  row_version: number;
+  created_at: string;
+  updated_at: string;
+  field_count: number;
+}
+export type EvidenceStatus = "pending" | "found" | "not_located" | "unavailable" | "not_applicable";
+export interface EvidenceItem {
+  id: string;
+  paper_id: string;
+  field_key: string;
+  status: EvidenceStatus;
+  value: unknown;
+  excerpt: string | null;
+  document_page_id: string | null;
+  reviewer_id: string | null;
+  note: string | null;
+  row_version: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface FieldCoverage {
+  field_key: string;
+  label: string;
+  included_papers: number;
+  found: number;
+  not_located: number;
+  unavailable: number;
+  pending: number;
+}
+export interface SchemaCoverage {
+  schema_id: string;
+  schema_version: number;
+  included_papers: number;
+  by_question: Record<string, { question_id: string; fields: FieldCoverage[] }>;
+  unmapped_fields: FieldCoverage[];
+}

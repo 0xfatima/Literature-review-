@@ -436,6 +436,20 @@ def execute(db: Session, job: Job, settings: Settings, *, http: HttpFetcher | No
             project_id=project.id,
             after={k: v for k, v in summary.items() if k != "search_run_id"},
         )
+    # Seed PRISMA identified records for papers discovered in this run.
+    if run.protocol_version_id is not None and run.status != "cancelled":
+        from app.repositories import search as paper_repo_
+        from app.services import prisma_sync
+
+        paper_ids_ = list(paper_repo_.paper_ids_for_run(db, run.id))
+        if paper_ids_:
+            prisma_sync.seed_identified(
+                db,
+                run.project_id,
+                run.protocol_version_id,
+                paper_ids_,
+                source_tag=run.tier or "database",
+            )
     target = fsm.CANCELLED if run.status == "cancelled" else fsm.SUCCEEDED
     job_repo.finish(db, job.id, fsm.RUNNING, target, result=summary)
     db.commit()
