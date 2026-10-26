@@ -338,10 +338,12 @@ def pipeline_advance(job_id: str) -> str:
 
 @celery_app.task(name="system.purge_documents")
 def purge_documents() -> dict[str, int]:
-    """Retention and orphan sweep for stored files (scheduled by beat)."""
+    """Retention sweep (scheduled by beat): stored files and orphans, then ended session rows (Phase 14)."""
     from app.providers.storage import build_store
-    from app.services import document_service
+    from app.services import auth_service, document_service
 
     configure_logging(get_settings().log_level)
     with get_sessionmaker()() as db:
-        return document_service.purge(db, get_settings(), build_store(get_settings()))
+        out = document_service.purge(db, get_settings(), build_store(get_settings()))
+        out["sessions_deleted"] = auth_service.purge_sessions(db, get_settings())
+        return out

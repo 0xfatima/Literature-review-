@@ -109,3 +109,12 @@ def logout(db: Session, user: User, sess: AuthSession) -> None:
     sess.revoked_at = _utcnow()
     audit_service.record(db, action="auth.logout", entity_type="user", entity_id=user.id, actor_id=user.id)
     db.commit()
+
+
+def purge_sessions(db: Session, settings: Settings, now: datetime | None = None) -> int:
+    """Retention for session rows (Phase 14): ended sessions are kept SESSION_RETENTION_DAYS for investigation, then
+    deleted. The audit trail of sign-ins and sign-outs is unaffected (audit_events are append-only)."""
+    cutoff = (now or _utcnow()) - timedelta(days=max(0, settings.session_retention_days))
+    n = users_repo.delete_sessions_ended_before(db, cutoff)
+    db.commit()
+    return n

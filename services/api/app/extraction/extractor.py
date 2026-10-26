@@ -19,6 +19,8 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.untrusted import fence, neutralise
+
 PROMPT_VERSION = "extraction-v1"
 ANSWER_STATUSES = ("found", "not_located", "ambiguous")
 MAX_VALUE_CHARS = 2000
@@ -112,7 +114,7 @@ def _field_line(fd: dict[str, Any]) -> str:
 
 def build_prompt(fields: list[dict[str, Any]], title: str | None, chunk: list[PageText], part: int, parts: int) -> str:
     lines = [
-        f"Paper title (from bibliographic metadata): {title or 'unknown'}",
+        f"Paper title (from bibliographic metadata): {neutralise(title) or 'unknown'}",
         f"Text part {part} of {parts}. Pages given: {', '.join(str(p.page_no) for p in chunk)}.",
         "",
         "Fields to extract:",
@@ -120,8 +122,8 @@ def build_prompt(fields: list[dict[str, Any]], title: str | None, chunk: list[Pa
         "",
         "Answer every field once. Page text follows.",
     ]
-    for p in chunk:
-        lines += ["", f"=== PAGE {p.page_no} ===", p.text]
+    for p in chunk:  # page markers are ours; page text is third-party data, fenced (Phase 14)
+        lines += ["", f"=== PAGE {p.page_no} ===", fence(p.text, f"page {p.page_no}")]
     return "\n".join(lines)
 
 

@@ -114,10 +114,13 @@ class AuditEvent(Base):
     after: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     reason: Mapped[str | None] = mapped_column(Text)
     correlation_id: Mapped[str | None] = mapped_column(String(64))
+    # Phase 14: the system process responsible when there is no user actor (e.g. "worker:system.purge_documents").
+    actor_process: Mapped[str | None] = mapped_column(String(64))
     at: Mapped[datetime] = now_col()
     __table_args__ = (
         Index("ix_audit_events_project_at", "project_id", "at"),
         Index("ix_audit_events_actor_at", "actor_id", "at"),
+        Index("ix_audit_events_entity_at", "entity_id", "at"),
     )
 
 

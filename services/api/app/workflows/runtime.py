@@ -65,6 +65,22 @@ def checkpointer() -> Iterator[PostgresSaver]:
         yield saver
 
 
+def delete_threads(thread_ids: list[str]) -> int:
+    """Delete LangGraph checkpoints of the given threads (a deleted project's runs). Best effort: a failure is logged
+    and leaves orphaned checkpoint rows that no run references (documented in the retention runbook)."""
+    if not thread_ids:
+        return 0
+    done = 0
+    try:
+        with checkpointer() as saver:
+            for t in thread_ids:
+                saver.delete_thread(t)
+                done += 1
+    except Exception:  # noqa: BLE001 - the project is already deleted; never fail the request for this
+        log.exception("could not delete workflow checkpoints of a deleted project", extra={"threads": len(thread_ids)})
+    return done
+
+
 def _cfg(run: WorkflowRun) -> RunnableConfig:
     return {"configurable": {"thread_id": str(run.thread_id)}}
 

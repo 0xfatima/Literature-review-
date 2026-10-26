@@ -56,6 +56,9 @@ def delete_project(
     store: ObjectStore = Depends(get_object_store),
 ) -> Response:
     project_id = project.id
-    project_service.delete(db, user, project_id)
+    threads = project_service.delete(db, user, project_id)
     document_service.purge_project_objects(store, project_id)  # after the commit: files of a deleted project go too
+    from app.workflows.runtime import delete_threads
+
+    delete_threads(threads)  # and the workflow checkpoints, which can hold protocol answers (Phase 14 retention)
     return Response(status_code=204)

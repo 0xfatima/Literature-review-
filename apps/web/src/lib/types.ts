@@ -1155,3 +1155,29 @@ export interface CriteriaImpact {
   carry_forward: { paper_id: string; title: string; why: string; decision: string }[];
   protocol_version?: number;
 }
+
+/** Phase 14 audit log (read-only). */
+export type AuditActorKind = "user" | "system";
+export interface AuditActor {
+  kind: AuditActorKind;
+  is_you: boolean;
+  process: string | null;
+}
+export interface AuditEventView {
+  id: string;
+  at: string;
+  action: string;
+  category: string;
+  label: string;
+  entity_type: string;
+  entity_id: string | null;
+  actor: AuditActor;
+  reason: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  correlation_id: string | null;
+}
+export interface AuditPage {
+  items: AuditEventView[];
+  next_cursor: string | null;
+}

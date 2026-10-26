@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.appraisal.frameworks import NO_INFO, Framework
+from app.core.untrusted import fence, neutralise
 from app.extraction.extractor import PageText, locate_quote
 
 PROMPT_VERSION = "appraisal-v1"
@@ -63,7 +64,7 @@ def no_info_value(fw: Framework) -> str:
 
 def build_prompt(fw: Framework, title: str | None, chunk: list[PageText], part: int, parts: int) -> str:
     lines = [
-        f"Study title: {title or 'unknown'}",
+        f"Study title: {neutralise(title) or 'unknown'}",
         f"Framework: {fw.label} ({fw.based_on}).",
         f"Allowed judgements: {', '.join(fw.judgements)}.",
         f"Text part {part} of {parts}.",
@@ -71,8 +72,8 @@ def build_prompt(fw: Framework, title: str | None, chunk: list[PageText], part: 
         "Domains:",
         *(f"- {d.key}: {d.label}. {d.prompt}" for d in fw.domains),
     ]
-    for p in chunk:
-        lines += ["", f"=== PAGE {p.page_no} ===", p.text]
+    for p in chunk:  # page markers are ours; page text is third-party data, fenced (Phase 14)
+        lines += ["", f"=== PAGE {p.page_no} ===", fence(p.text, f"page {p.page_no}")]
     return "\n".join(lines)
 
 

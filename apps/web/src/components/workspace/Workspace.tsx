@@ -18,6 +18,7 @@ import SynthesisPanel from "@/components/synthesis/SynthesisPanel";
 import ScreeningPanel from "@/components/screening/ScreeningPanel";
 import PaperInspector from "@/components/papers/PaperInspector";
 import AutopilotPanel from "@/components/pipeline/AutopilotPanel";
+import AuditPanel from "@/components/audit/AuditPanel";
 import StageNavigator from "@/components/workspace/StageNavigator";
 import { useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
 import { WORKFLOW_STAGES, statusText } from "@/lib/protocol";
@@ -128,6 +129,7 @@ export const TABS = [
   { id: "appraisal", label: "Appraisal" },
   { id: "synthesis", label: "Synthesis" },
   { id: "report", label: "Report" },
+  { id: "audit", label: "Audit log" },
 ] as const;
 export type TabId = (typeof TABS)[number]["id"];
 
@@ -371,6 +373,7 @@ export default function Workspace({
             <SynthesisPanel projectId={project.id} canWrite={project.archived_at === null} />,
           )}
           {panel("report", <ReportPanel projectId={project.id} canWrite={project.archived_at === null} />)}
+          {panel("audit", <AuditPanel projectId={project.id} />)}
         </div>
         <PaperInspector projectId={project.id} canWrite={project.archived_at === null} />
       </div>

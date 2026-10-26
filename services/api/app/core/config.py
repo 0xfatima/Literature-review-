@@ -138,6 +138,13 @@ class Settings(BaseSettings):
     rate_limit_login_per_min: int = 10
     rate_limit_register_per_hour: int = 20
 
+    # Security hardening (Phase 14). See docs/architecture/security.md.
+    rate_limit_writes_per_min: int = 600  # state-changing /api requests per signed-in session (0 = off; dev/test only)
+    max_request_body_bytes: int = 2 * 1024 * 1024  # non-upload request bodies (uploads use UPLOAD_MAX_BYTES)
+    hsts_max_age_s: int = 31_536_000  # sent only when COOKIE_SECURE=true (i.e. behind HTTPS)
+    session_retention_days: int = 30  # expired/revoked session rows are deleted this long after they ended
+    audit_export_max_rows: int = 50_000
+
     dev_seed_email: str = "demo@example.invalid"
     # No default on purpose: set DEV_SEED_PASSWORD (.env.example has a development placeholder). seed-dev only.
     dev_seed_password: str | None = None
