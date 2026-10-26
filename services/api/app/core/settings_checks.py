@@ -41,6 +41,8 @@ def find_unsafe_settings(values: Mapping[str, Any]) -> list[str]:
         problems.append("STORAGE_BACKEND=memory is for tests only: the API and the worker cannot share it")
     if str(values.get("malware_scanner", "none")).lower() == "none" and values.get("malware_scan_required"):
         problems.append("MALWARE_SCAN_REQUIRED=true needs MALWARE_SCANNER=clamav")
+    if int(values.get("rate_limit_writes_per_min", 600)) <= 0:  # absent = the default (600)
+        problems.append("RATE_LIMIT_WRITES_PER_MIN must be positive outside development/test")
     if env not in {"staging", "production"}:
         problems.append(f"APP_ENV '{env}' is not one of development|test|staging|production")
     return problems

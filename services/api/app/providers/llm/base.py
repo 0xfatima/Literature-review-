@@ -12,13 +12,17 @@ tokens, duration, status), success or failure.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from app.core.untrusted import UNTRUSTED_POLICY_VERSION, fenced_signals, with_policy
+
 DATA_CLASSES = ("public_metadata", "private_document")
+log = logging.getLogger(__name__)
 
 
 class LLMError(Exception):
@@ -119,10 +123,16 @@ class LLMGateway:
                 raise LLMError("rate_limited", reason)
         if self.slots is not None and not self.slots.acquire(timeout=self.slot_wait_s):
             raise LLMError("rate_limited", "Too many AI calls are in progress; try again shortly.")
+        signals = fenced_signals(prompt)
+        if signals:  # monitoring only: names and counts, never the text itself
+            log.warning(
+                "possible prompt injection in third-party text",
+                extra={"signals": signals, "data_class": data_class, "policy": UNTRUSTED_POLICY_VERSION},
+            )
         start = time.monotonic()
         try:
             result = self.provider.generate_json(
-                system=system,
+                system=with_policy(system),
                 prompt=prompt,
                 schema=schema,
                 temperature=temperature,

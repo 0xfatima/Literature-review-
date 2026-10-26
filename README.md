@@ -3,7 +3,7 @@
 Human-in-the-loop systematic-review workbench (protocol → search → screening → PDFs → evidence extraction → synthesis → draft) with provenance and an audit trail.
 Source of truth: `docs/requirements/`. Architecture: `docs/architecture/ADR-0001-initial-architecture.md` (Accepted, with amendments A1–A8).
 
-**Status: Phase 3 (research protocol and review workflow) complete pending CI.** On top of Phase 2 (accounts, projects, persistent chat, IDE workspace): a protocol-setup conversation driven by a LangGraph workflow with database checkpoints (objective, PICO/PECO/SPIDER/custom framework with a rule-based suggestion, framework elements, review questions, scope, inclusion/exclusion criteria, approval), an editable Protocol tab, immutable approved versions, revisions with a required reason and a downstream-impact report, and recovery after restarts or worker crashes. See `docs/implementation-reports/phase-3.md`.
+**Status: Phase 14 (auditability, privacy and security hardening) complete pending CI.** Phases 0–13 provide the full review workflow; Phase 14 adds a read-only Audit log (API, CSV export, workspace tab), system-process attribution of audit events, prompt-injection fencing of all third-party text sent to AI models, API security headers, request-body and per-session write limits, session retention, checkpoint deletion with projects, a dependency-vulnerability CI gate, and backup/restore scripts. See `docs/implementation-reports/phase-14.md`, `docs/architecture/security.md` and `docs/runbooks/data-retention-and-recovery.md`.
 The research assistant is **not connected yet**: chat stores your messages and says so; it never invents replies. Exact test results: `docs/implementation-reports/phase-2.md`.
 
 ## Quick start (Docker Compose)
@@ -54,6 +54,10 @@ Lockfiles are committed (`requirements.lock.txt`, `apps/web/package-lock.json`).
 | `scripts/test-e2e.sh` | Playwright browser tests against the compose stack | Docker, Node, Chromium download |
 
 Integration tests **skip** (visibly) without `TEST_DATABASE_URL`; a skip is not a pass. CI (`.github/workflows/ci.yml`) runs all of the above on every pull request.
+
+## Backups and restore
+`scripts/backup.sh [OUT_DIR]` (database + uploaded files + checksummed manifest) and `scripts/restore.sh BACKUP_DIR --yes`
+(destructive). Retention periods, deletion semantics and the post-restore checklist: `docs/runbooks/data-retention-and-recovery.md`.
 
 ## Password recovery (not available)
 Self-service password reset is **deferred** (no email infrastructure; see ADR A8). The login page says so. Operator-assisted reset:

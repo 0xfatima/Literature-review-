@@ -31,3 +31,20 @@ def reset_correlation_id(token: contextvars.Token[str | None]) -> None:
 
 def get_correlation_id() -> str | None:
     return _correlation_id.get()
+
+
+# Which system process is acting when no user is (Phase 14 audit attribution): "worker:<task>", "cli:<command>".
+_actor_process: contextvars.ContextVar[str | None] = contextvars.ContextVar("actor_process", default=None)
+_PROCESS = re.compile(r"[^A-Za-z0-9._:-]")
+
+
+def set_actor_process(value: str | None) -> contextvars.Token[str | None]:
+    return _actor_process.set(_PROCESS.sub("_", value)[:64] if value else None)
+
+
+def reset_actor_process(token: contextvars.Token[str | None]) -> None:
+    _actor_process.reset(token)
+
+
+def get_actor_process() -> str | None:
+    return _actor_process.get()

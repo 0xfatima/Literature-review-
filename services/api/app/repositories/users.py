@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
+from app.db.base import affected_rows
 from app.db.models import AuthSession, User
 
 
@@ -30,3 +32,11 @@ def add_session(db: Session, sess: AuthSession) -> AuthSession:
 
 def get_session_by_token_hash(db: Session, token_hash: str) -> AuthSession | None:
     return db.scalar(select(AuthSession).where(AuthSession.token_hash == token_hash))
+
+
+def delete_sessions_ended_before(db: Session, cutoff: datetime) -> int:
+    """Hard-delete session rows that expired or were revoked before `cutoff` (they can never authenticate again)."""
+    result = db.execute(
+        delete(AuthSession).where(or_(AuthSession.expires_at < cutoff, AuthSession.revoked_at < cutoff))
+    )
+    return affected_rows(result)

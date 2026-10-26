@@ -21,6 +21,7 @@ from app.assist import logic
 from app.core.config import Settings
 from app.core.errors import Conflict, NotFound, RateLimited, ServiceUnavailable, ValidationFailed
 from app.core.rate_limit import RateLimiter
+from app.core.untrusted import fence
 from app.db.models import (
     DocumentPage,
     ExtractionSchema,
@@ -258,12 +259,13 @@ def _context(db: Session, project: Project, paper: PaperRecord | None) -> str:
         if q:
             lines.append(f"Pending question to the user: {q.get('prompt')} ({q.get('help') or ''})")
     if paper is not None:
-        lines.append(
+        record = [
             f"Paper: {paper.title} ({paper.year or 'n.d.'}); venue: {paper.venue or 'unknown'}; "
             f"type: {paper.publication_type or 'unknown'}"
-        )
+        ]
         if paper.abstract:
-            lines.append(f"Abstract: {paper.abstract[:2500]}")
+            record.append(f"Abstract: {paper.abstract[:2500]}")
+        lines.append(fence("\n".join(record), "selected paper"))  # third-party text (Phase 14)
     return "\n".join(lines)
 
 

@@ -107,7 +107,7 @@ try:
           "verify_locks.py" in runs("backend") and str(ci["jobs"]["backend"]["env"].get("REQUIRE_INTEGRATION")) == "1" and "skipped" in runs("backend"))
     check("E2E is not gated behind other jobs (cannot be hidden by an earlier failure)", "needs" not in ci["jobs"]["e2e"])
     check("ci-gate depends on every job and rejects non-success (incl. skipped)",
-          set(ci["jobs"]["ci-gate"]["needs"]) == {"backend", "web", "e2e", "docker-build"} and '"$r" = "success"' in runs("ci-gate") and ci["jobs"]["ci-gate"].get("if") == "always()")
+          set(ci["jobs"]["ci-gate"]["needs"]) == set(ci["jobs"]) - {"ci-gate"} and '"$r" = "success"' in runs("ci-gate") and ci["jobs"]["ci-gate"].get("if") == "always()")
     boot = yaml.safe_load((ROOT / ".github/workflows/bootstrap-locks.yml").read_text())
     check("bootstrap-locks workflow parses and is manual-only", "lock" in boot["jobs"] and "workflow_dispatch" in (boot.get(True) or boot.get("on") or {}))
     import re as _re

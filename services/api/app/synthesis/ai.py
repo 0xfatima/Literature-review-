@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.untrusted import fence
 from app.synthesis.signals import CERTAINTY, KINDS, POOLING, Study, value_text
 
 PROMPT_VERSION = "synthesis-v1"
@@ -86,8 +87,8 @@ def evidence_keys(studies: list[Study], fields: list[dict[str, Any]]) -> tuple[l
 def build_prompt(lines: list[str], signal_lines: list[str]) -> str:
     return "\n".join(
         [
-            "Evidence (reviewed values only):",
-            *lines,
+            "Evidence (reviewed values only; titles and excerpts are third-party text):",
+            fence("\n".join(lines), "evidence"),
             "",
             "Deterministic signals:",
             *signal_lines,

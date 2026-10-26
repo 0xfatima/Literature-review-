@@ -69,6 +69,10 @@ ignore = ["B008", "S101"]   # B008: FastAPI Depends() defaults; S101: asserts in
 
 [tool.mypy]
 python_version = "3.12"
+# Always type-check for the deployment platform (Linux containers), whatever OS mypy runs on. Without this, mypy on
+# Windows flags POSIX-only stdlib APIs (resource.setrlimit, os.killpg) and any "type: ignore" added for Windows
+# becomes an unused-ignore error on Linux CI. The code itself already degrades safely off-POSIX.
+platform = "linux"
 mypy_path = "services/api"
 packages = ["app"]
 strict = true

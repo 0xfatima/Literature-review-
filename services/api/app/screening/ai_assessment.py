@@ -17,6 +17,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.untrusted import fence
 from app.screening.relevance import LLM_THRESHOLDS, band_for
 
 METHOD = "llm"
@@ -125,16 +126,17 @@ def build_prompt(protocol: ProtocolInput, papers: list[PaperInput]) -> str:
     lines += [f"  {k} [{kind}]: {t}" for k, kind, t, _ in protocol.criteria] or ["  (none given)"]
     lines.append("")
     lines.append(f"RECORDS ({len(papers)})")
-    for p in papers:
+    for p in papers:  # record ids are ours; bibliographic text comes from third parties and is fenced (Phase 14)
         lines.append(f"--- {p.key}")
-        lines.append(f"Title: {p.title}")
+        record = [f"Title: {p.title}"]
         if p.year:
-            lines.append(f"Year: {p.year}")
+            record.append(f"Year: {p.year}")
         if p.publication_type:
-            lines.append(f"Type: {p.publication_type}")
+            record.append(f"Type: {p.publication_type}")
         if p.keywords:
-            lines.append(f"Keywords: {', '.join(p.keywords[:15])}")
-        lines.append(f"Abstract: {(p.abstract or '(no abstract available)')[:MAX_ABSTRACT_CHARS]}")
+            record.append(f"Keywords: {', '.join(p.keywords[:15])}")
+        record.append(f"Abstract: {(p.abstract or '(no abstract available)')[:MAX_ABSTRACT_CHARS]}")
+        lines.append(fence("\n".join(record), f"record {p.key}"))
     lines.append("")
     lines.append(
         "Return one assessment per record, using the record ids above. For each criterion you can judge, give the "

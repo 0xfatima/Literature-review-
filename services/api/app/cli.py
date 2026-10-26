@@ -14,6 +14,7 @@ import sys
 
 from app.core import passwords
 from app.core.config import get_settings
+from app.core.context import set_actor_process
 from app.core.security import normalize_email, validate_password
 from app.db.models import Project, User
 from app.db.session import get_sessionmaker
@@ -132,6 +133,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("seed-dev")
     sub.add_parser("sweep-jobs")
     args = ap.parse_args(argv)
+    set_actor_process(f"cli:{args.cmd}")  # audit attribution for operator actions (Phase 14)
     if args.cmd == "create-user":
         u = create_user(args.email, _read_password(True))
         print(f"Created user {u.id}")

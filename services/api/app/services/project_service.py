@@ -4,10 +4,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import Conflict, NotFound, ValidationFailed
-from app.db.models import Project, User
+from app.db.models import PipelineRun, Project, User, WorkflowRun
 from app.repositories import projects as repo
 from app.services import audit_service
 
@@ -92,11 +93,21 @@ def update(
     return p
 
 
-def delete(db: Session, user: User, project_id: uuid.UUID) -> None:
+def checkpoint_threads(db: Session, project_id: uuid.UUID) -> list[str]:
+    """LangGraph thread ids of a project's workflow and pipeline runs (their checkpoints live outside the ORM)."""
+    ids = list(db.scalars(select(WorkflowRun.thread_id).where(WorkflowRun.project_id == project_id)))
+    ids += list(db.scalars(select(PipelineRun.thread_id).where(PipelineRun.project_id == project_id)))
+    return [str(t) for t in ids]
+
+
+def delete(db: Session, user: User, project_id: uuid.UUID) -> list[str]:
+    """Delete the project (rows cascade). Returns the checkpoint thread ids the caller must purge after the commit."""
     p = _require_owned(db, user, project_id)
     pid = p.id
+    threads = checkpoint_threads(db, pid)
     repo.delete(db, p)  # dependent rows cascade; stored objects will be purged here in later phases
     audit_service.record(
         db, action="project.deleted", entity_type="project", entity_id=pid, actor_id=user.id, project_id=pid
     )
     db.commit()
+    return threads

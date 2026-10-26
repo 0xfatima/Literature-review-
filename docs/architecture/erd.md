@@ -498,9 +498,12 @@ erDiagram
     jsonb after
     text reason
     uuid correlation_id
+    string actor_process
     timestamptz at
   }
 ```
+
+> **Phase 14 (`0012_audit_hardening`):** `audit_events.actor_process` names the system process (e.g. `worker:system.purge_documents`, `cli:set-password`) when `actor_id` is null; new index `ix_audit_events_entity_at (entity_id, at)` serves the account activity view.
 
 ## Key constraints and indexes (to be implemented with each phase's migration)
 
