@@ -111,6 +111,20 @@ def paper_holding(db: Session, project_id: uuid.UUID, field: str, value: str) ->
     return db.scalar(select(PaperRecord).where(PaperRecord.project_id == project_id, col == value))
 
 
+def stored_source_ids(db: Session, query_id: uuid.UUID, provider_record_ids: list[str]) -> set[str]:
+    """Which of these provider record ids this query has already stored (one round trip per page)."""
+    if not provider_record_ids:
+        return set()
+    return set(
+        db.scalars(
+            select(PaperSourceRecord.provider_record_id).where(
+                PaperSourceRecord.search_query_id == query_id,
+                PaperSourceRecord.provider_record_id.in_(provider_record_ids),
+            )
+        )
+    )
+
+
 def source_exists(db: Session, query_id: uuid.UUID, provider_record_id: str) -> bool:
     return bool(
         db.scalar(
@@ -205,55 +219,53 @@ def project_summary(db: Session, project_id: uuid.UUID, protocol_version_id: uui
     """Identification counts derived from stored records, overall and for runs of the current approved protocol."""
 
     def scope(run_filter: Any) -> dict[str, Any]:
-        base = (
-            select(PaperSourceRecord)
+        # Phase 15: two aggregate queries per scope (previously seven), same figures.
+        records_q = (
+            select(PaperSourceRecord.provider, SearchRun.tier, func.count())
+            .select_from(PaperSourceRecord)
             .join(SearchRun, SearchRun.id == PaperSourceRecord.search_run_id)
             .where(PaperSourceRecord.project_id == project_id, run_filter)
+            .group_by(PaperSourceRecord.provider, SearchRun.tier)
         )
-        sub = base.subquery()
-        records = db.scalar(select(func.count()).select_from(sub)) or 0
-        by_provider = {
-            str(p): int(n) for p, n in db.execute(select(sub.c.provider, func.count()).group_by(sub.c.provider)).all()
-        }
-        by_tier = {
-            str(t): int(n)
-            for t, n in db.execute(
-                select(SearchRun.tier, func.count())
-                .select_from(PaperSourceRecord)
-                .join(SearchRun, SearchRun.id == PaperSourceRecord.search_run_id)
-                .where(PaperSourceRecord.project_id == project_id, run_filter)
-                .group_by(SearchRun.tier)
-            ).all()
-        }
-        papers = db.scalar(select(func.count(func.distinct(sub.c.paper_id)))) or 0
-        access = {
-            str(a): int(n)
-            for a, n in db.execute(
-                select(PaperRecord.access_status, func.count())
-                .where(PaperRecord.id.in_(select(sub.c.paper_id)))
-                .group_by(PaperRecord.access_status)
-            ).all()
-        }
-        flagged = (
-            db.scalar(
-                select(func.count()).where(
-                    PaperRecord.id.in_(select(sub.c.paper_id)), PaperRecord.possible_duplicate_of_id.isnot(None)
-                )
+        by_provider: dict[str, int] = {}
+        by_tier: dict[str, int] = {}
+        records = 0
+        for provider, tier, n in db.execute(records_q).all():
+            by_provider[str(provider)] = by_provider.get(str(provider), 0) + int(n)
+            by_tier[str(tier)] = by_tier.get(str(tier), 0) + int(n)
+            records += int(n)
+        ids = (
+            select(PaperSourceRecord.paper_id)
+            .join(SearchRun, SearchRun.id == PaperSourceRecord.search_run_id)
+            .where(PaperSourceRecord.project_id == project_id, run_filter)
+            .distinct()
+            .subquery()
+        )
+        papers_q = (
+            select(
+                PaperRecord.access_status,
+                func.count(),
+                func.count().filter(PaperRecord.possible_duplicate_of_id.isnot(None)),
+                func.count().filter(PaperRecord.is_preprint),
             )
-            or 0
+            .join(ids, ids.c.paper_id == PaperRecord.id)
+            .group_by(PaperRecord.access_status)
         )
-        preprints = (
-            db.scalar(select(func.count()).where(PaperRecord.id.in_(select(sub.c.paper_id)), PaperRecord.is_preprint))
-            or 0
-        )
+        access: dict[str, int] = {}
+        papers = flagged = preprints = 0
+        for status, n, dup, pre in db.execute(papers_q).all():
+            access[str(status)] = int(n)
+            papers += int(n)
+            flagged += int(dup)
+            preprints += int(pre)
         return {
-            "records_identified": int(records),
+            "records_identified": records,
             "records_by_provider": by_provider,
             "records_by_tier": by_tier,
-            "unique_papers": int(papers),
-            "duplicates_removed": int(records - papers),
-            "possible_duplicates": int(flagged),
-            "preprints": int(preprints),
+            "unique_papers": papers,
+            "duplicates_removed": records - papers,
+            "possible_duplicates": flagged,
+            "preprints": preprints,
             "access": access,
         }
 

@@ -13,7 +13,6 @@ tokens, duration, status), success or failure.
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -22,6 +21,13 @@ from typing import Any, Protocol
 from app.core.untrusted import UNTRUSTED_POLICY_VERSION, fenced_signals, with_policy
 
 DATA_CLASSES = ("public_metadata", "private_document")
+
+
+class SlotLimiter(Protocol):
+    def acquire(self, timeout: float | None = ...) -> bool: ...
+    def release(self) -> None: ...
+
+
 log = logging.getLogger(__name__)
 
 
@@ -75,9 +81,9 @@ class LLMGateway:
     terms_reviewed: bool = False
     calls: list[LLMResult] = field(default_factory=list)
     # Phase 13 limits. `budget_guard` returns a reason when a token budget is spent (set by the calling job);
-    # `slots` bounds concurrent calls in this process.
+    # `slots` bounds concurrent calls (per process, and across processes since Phase 15).
     budget_guard: Callable[[], str | None] | None = None
-    slots: threading.BoundedSemaphore | None = None
+    slots: SlotLimiter | None = None
     slot_wait_s: float = 60.0
 
     def private_document_block(self, consent: ConsentToken | None) -> str | None:

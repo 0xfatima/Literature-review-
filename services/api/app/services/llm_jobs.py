@@ -20,12 +20,29 @@ STOP_KINDS = frozenset({"rate_limited", "rejected", "not_configured", "refused"}
 
 
 def token_guard(db: Session, project_id: uuid.UUID, daily_budget: int) -> Callable[[], str | None] | None:
-    """Phase 13: a guard that stops AI calls once the project's tokens recorded today reach the daily budget."""
-    if daily_budget <= 0:
+    """Phase 13: a guard that stops AI calls once the project's tokens recorded today reach the daily budget.
+    Phase 15: also the deployment-wide budget (LLM_GLOBAL_DAILY_TOKEN_BUDGET), so many projects together cannot
+    exhaust the provider quota."""
+    from app.core.config import get_settings
+
+    global_budget = int(get_settings().llm_global_daily_token_budget or 0)
+    if daily_budget <= 0 and global_budget <= 0:
         return None
+    tokens = func.coalesce(
+        func.sum(func.coalesce(ModelRun.input_tokens, 0) + func.coalesce(ModelRun.output_tokens, 0)), 0
+    )
 
     def check() -> str | None:
         since = datetime.now(UTC) - timedelta(days=1)
+        if global_budget > 0:
+            all_used = int(db.scalar(select(tokens).where(ModelRun.created_at >= since)) or 0)
+            if all_used >= global_budget:
+                return (
+                    "The service-wide AI token budget for the last 24 hours is used up. AI steps resume automatically "
+                    "as older usage leaves the 24-hour window; nothing already saved is affected."
+                )
+        if daily_budget <= 0:
+            return None
         used = (
             db.scalar(
                 select(

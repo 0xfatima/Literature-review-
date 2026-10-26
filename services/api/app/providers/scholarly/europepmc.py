@@ -41,6 +41,7 @@ def _as_list(v: Any) -> list[Any]:
 
 
 class EuropePMCSource:
+    endpoint: str = ENDPOINT  # Phase 15: overridable via SCHOLARLY_ENDPOINTS (registry)
     key = "europepmc"
     label = "Europe PMC"
     tier = "open_access"
@@ -71,7 +72,7 @@ class EuropePMCSource:
             text += " AND (" + " OR ".join(f'LANG:"{iso2}"' for _, iso2 in filters.languages) + ")"
             applied["languages"] = [iso1 for iso1, _ in filters.languages]
         params = {"query": text, "format": "json", "resultType": "core"}
-        return ProviderQuery(self.key, ENDPOINT, text, params, applied, list(r.limitations))
+        return ProviderQuery(self.key, self.endpoint, text, params, applied, list(r.limitations))
 
     def fetch_page(self, http: HttpFetcher, query: ProviderQuery, cursor: str | None, page_size: int) -> Page:
         current = cursor or "*"

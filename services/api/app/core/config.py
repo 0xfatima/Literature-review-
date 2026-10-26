@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,7 +20,15 @@ _REPO_ROOT_ENV = _REPO_ROOT / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=(_REPO_ROOT_ENV, ".env"), extra="ignore", case_sensitive=False)
+    # Phase 15: SECRETS_DIR (e.g. /run/secrets with Docker secrets) holds one file per secret setting, named after the
+    # setting (database_url, redis_url, session_secret, llm_api_key, metrics_token, ...). Environment variables
+    # still win over files, so a secret should be set in exactly one place.
+    model_config = SettingsConfigDict(
+        env_file=(_REPO_ROOT_ENV, ".env"),
+        extra="ignore",
+        case_sensitive=False,
+        secrets_dir=os.environ.get("SECRETS_DIR") or None,
+    )
 
     app_env: str = "development"
     app_base_url: str = "http://localhost:3000"
@@ -38,6 +47,16 @@ class Settings(BaseSettings):
     job_stale_after_s: int = 120
     job_requeue_queued_after_s: int = 60
     job_sweep_interval_s: float = 60.0
+    # Phase 15: fair admission (backpressure). Jobs are always recorded; only this many per user / in total are handed
+    # to the broker at once. The rest wait in the database and are admitted oldest-first, round-robin across users.
+    job_max_inflight_per_user: int = 4
+    job_max_inflight_global: int = 64
+    job_pump_interval_s: float = 5.0
+    job_fair_share_window_s: float = 600.0  # recent admissions count against a user when ranking waiting jobs
+    # Graceful shutdown: long-running jobs stop at their next safe checkpoint (resumable) when the worker is asked to
+    # stop; set the orchestrator's stop grace period (compose stop_grace_period / k8s terminationGracePeriodSeconds)
+    # above this value.
+    worker_drain_timeout_s: float = 60.0
     worker_health_timeout_s: float = 1.5
 
     # Review workflow. max_iterations bounds the human question loop on one checkpoint thread (spec §5.2).
@@ -48,6 +67,8 @@ class Settings(BaseSettings):
     # Scholarly search (Phase 4). Providers are called only from the worker. Contact e-mail and API key are sent to
     # the providers that ask for them (OpenAlex/Crossref polite pools) and are never stored with search records.
     search_providers_enabled: str = "openalex,europepmc,arxiv,crossref"
+    # Phase 15: endpoint overrides "provider=https://...", comma-separated (mirrors, load tests). Empty = official APIs.
+    scholarly_endpoints: str = ""
     scholarly_contact_email: str | None = None
     openalex_api_key: str | None = None
     search_http_timeout_s: float = 20.0
@@ -92,6 +113,9 @@ class Settings(BaseSettings):
     # Limits on AI calls across all jobs: concurrent calls (per process and, with Redis, globally) and tokens/day
     llm_max_concurrent_calls: int = 4
     llm_daily_token_budget: int = 0
+    # Phase 15: deployment-wide limits shared by every worker process (Redis), protecting the provider quota.
+    llm_global_max_concurrent_calls: int = 4  # 0 = only the per-process limit applies
+    llm_global_daily_token_budget: int = 0  # tokens per rolling 24 h across all projects; 0 = no limit
     # Screening (Phase 5). Title/abstract: an exclusion reason is encouraged; set true to require one.
     screening_ta_require_exclusion_reason: bool = False
 
@@ -144,6 +168,11 @@ class Settings(BaseSettings):
     hsts_max_age_s: int = 31_536_000  # sent only when COOKIE_SECURE=true (i.e. behind HTTPS)
     session_retention_days: int = 30  # expired/revoked session rows are deleted this long after they ended
     audit_export_max_rows: int = 50_000
+
+    # Observability (Phase 15). GET /internal/metrics (Prometheus text) answers only with this bearer token; when it
+    # is empty the endpoint does not exist (404). The edge proxy never forwards /internal/.
+    metrics_token: str | None = None
+    metrics_window_s: int = 900  # job/provider aggregates cover this trailing window
 
     dev_seed_email: str = "demo@example.invalid"
     # No default on purpose: set DEV_SEED_PASSWORD (.env.example has a development placeholder). seed-dev only.

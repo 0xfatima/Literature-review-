@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from app.providers.scholarly.throttle import Throttle
+from app.providers.scholarly.throttle import Throttle, penalize
 
 log = logging.getLogger(__name__)
 RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
@@ -101,6 +101,12 @@ class HttpFetcher:
                 what = "rate limit reached" if kind == "rate_limited" else f"server error (HTTP {resp.status_code})"
                 last = ProviderError(provider, kind, f"{provider}: {what}", status=resp.status_code, attempts=attempt)
                 hint = _retry_after(resp)
+                if resp.status_code == 429:  # Phase 15: every worker backs off, not only this one
+                    penalize(
+                        self.throttle,
+                        f"scholarly:{provider}",
+                        hint if hint is not None else self._backoff(attempt, None),
+                    )
             if attempt < attempts:
                 delay = self._backoff(attempt, hint)
                 log.info(

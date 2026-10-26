@@ -8,7 +8,9 @@ DIR="${1:?usage: scripts/restore.sh BACKUP_DIR --yes}"
 COMPOSE="${COMPOSE:-docker compose}"
 (cd "$DIR" && sha256sum -c <(grep -E '  (db\.dump|storage\.tar\.gz)$' manifest.txt))
 
-$COMPOSE stop api worker web proxy || true
+# every service except the data stores (works for the dev and the production compose files)
+APP_SERVICES="$($COMPOSE config --services | grep -vxE 'postgres|redis|migrate' | tr '\n' ' ')"
+$COMPOSE stop $APP_SERVICES || true
 $COMPOSE up -d postgres
 echo "1/3 database"
 # --clean drops objects first. audit_events' append-only trigger blocks row DELETE/TRUNCATE, not DROP TABLE.
@@ -19,5 +21,5 @@ $COMPOSE run --rm --no-deps -T --entrypoint sh api -c 'find /srv/storage -mindep
   < "$DIR/storage.tar.gz"
 echo "3/3 migrations (a backup from an older release is upgraded in place)"
 $COMPOSE run --rm migrate alembic upgrade head
-$COMPOSE up -d
+$COMPOSE up -d $APP_SERVICES
 echo "restore complete; verify with: curl -fsS http://localhost:8000/readyz and the checklist in the runbook"

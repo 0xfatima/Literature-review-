@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core import shutdown
 from app.core.config import Settings
 from app.core.errors import Conflict, RateLimited, ValidationFailed
 from app.core.rate_limit import RateLimiter
@@ -307,7 +308,7 @@ def _extract_paper(
         if job.cancel_requested:
             stop = "cancelled"
             break
-        if time.monotonic() > deadline:
+        if shutdown.past(deadline):
             stop = "time_budget"
             break
         try:
@@ -445,7 +446,7 @@ def execute(db: Session, job: Job, settings: Settings, *, gateway: LLMGateway | 
         if job.cancel_requested:
             stop = "cancelled"
             break
-        if time.monotonic() > deadline:
+        if shutdown.past(deadline):
             stop = "time_budget"
             break
         paper = db.get(PaperRecord, pid)

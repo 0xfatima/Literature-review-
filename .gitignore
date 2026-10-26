@@ -1,6 +1,10 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
+# production secrets and TLS keys never enter git (Phase 15)
+/secrets/
+/infra/proxy/certs/
 __pycache__/
 *.pyc
 .venv/

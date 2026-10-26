@@ -9,13 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from app.api import error_handlers, health
+from app.api import error_handlers, health, internal
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.context import reset_correlation_id, sanitize_correlation_id, set_correlation_id
 from app.core.errors import error_body
 from app.core.http_security import body_too_large, security_headers, write_limit_key
 from app.core.logging import configure_logging
+from app.core.metrics import REQUESTS
 from app.core.security import csrf_violation
 
 log = logging.getLogger("app.request")
@@ -94,13 +95,21 @@ def create_app() -> FastAPI:
             ).items():
                 response.headers.setdefault(name, value)
             response.headers["X-Correlation-ID"] = cid
+            elapsed = time.perf_counter() - start
+            route = request.scope.get("route")
+            template = getattr(route, "path", None)
+            if template is None:
+                template = "unmatched"
+            elif request.url.path.startswith("/api/v1") and not template.startswith("/api/v1"):
+                template = "/api/v1" + template
+            REQUESTS.observe(request.method, template, response.status_code, elapsed)
             log.info(
                 "request",
                 extra={
                     "method": request.method,
                     "path": request.url.path,  # no query string
                     "status": response.status_code,
-                    "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+                    "duration_ms": round(elapsed * 1000, 1),
                 },
             )
             return response
@@ -108,6 +117,7 @@ def create_app() -> FastAPI:
             reset_correlation_id(token)
 
     app.include_router(health.router)
+    app.include_router(internal.router)
     app.include_router(api_router)
     return app
 

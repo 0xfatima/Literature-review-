@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core import shutdown
 from app.core.config import Settings
 from app.core.errors import Conflict, NotFound, RateLimited
 from app.core.rate_limit import RateLimiter
@@ -242,7 +243,7 @@ def _llm(
         if job.cancel_requested:
             stop = "cancelled"
             break
-        if time.monotonic() > deadline:
+        if shutdown.past(deadline):
             stop = "time_budget"
             break
         chunk = todo[start : start + size]

@@ -54,6 +54,13 @@ def system_ping(job_id: str) -> str:
         reset_correlation_id(token)
 
 
+@celery_app.task(name="system.pump_jobs")
+def pump_jobs() -> int:
+    """Phase 15: admit waiting jobs within the fairness limits (also runs after every finished job)."""
+    with get_sessionmaker()() as db:
+        return job_service.pump(db, get_settings(), send_task)
+
+
 @celery_app.task(name="system.sweep_jobs")
 def sweep_jobs() -> dict[str, int]:
     configure_logging(get_settings().log_level)

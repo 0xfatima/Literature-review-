@@ -609,3 +609,7 @@ erDiagram
   decide | bulk | undo; `batch_id`; `supersedes_id` (NO ACTION); `assessment_ids` shown at decision time.
 - `screening_states`: unique `(paper_id, stage)`, current decision pointer with `row_version`; rebuildable from the log.
 - Stage values: `title_abstract` only; full-text screening (Phase 7) adds a stage value.
+
+> **Phase 15 (`0013_performance_indexes`):** indexes `ix_jobs_finished_at (finished_at) WHERE finished_at IS NOT NULL`
+> and `ix_model_runs_created_tokens (created_at) INCLUDE (input_tokens, output_tokens)`, built CONCURRENTLY; no
+> table or column changes. Measurements: `docs/performance.md#indexes`.

@@ -142,6 +142,37 @@ jobs:
       - run: docker build -f infra/docker/worker.Dockerfile -t srs-worker .
       - run: docker build -f infra/docker/web.Dockerfile -t srs-web .
 
+  # Phase 15: deploy the PRODUCTION compose file with the documented script, then smoke-test it over TLS, run the
+  # backup/restore exercise and scrape the internal metrics. Independent of the other jobs.
+  deploy-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lockfiles must exist
+        run: test -f requirements.lock.txt && test -f apps/web/package-lock.json
+      - name: Production configuration, secrets and a self-signed certificate
+        run: |
+          cp .env.production.example .env.production
+          sed -i 's#https://reviews.example.org#https://localhost#g; s#^SRS_VERSION=.*#SRS_VERSION=ci#' .env.production
+          scripts/gen-secrets.sh
+          mkdir -p infra/proxy/certs
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost \
+            -keyout infra/proxy/certs/privkey.pem -out infra/proxy/certs/fullchain.pem
+          chmod 644 infra/proxy/certs/privkey.pem
+      - name: Deploy with scripts/deploy.sh (pre-flight, build, migrate, start, smoke test over HTTPS)
+        run: scripts/deploy.sh --insecure
+      - name: Backup and restore exercise (rows AND uploaded files come back)
+        run: scripts/restore-drill.sh https://localhost --insecure
+        env: { COMPOSE: "docker compose --env-file .env.production -f docker-compose.prod.yml" }
+      - name: Smoke test again after the restore
+        run: python3 scripts/smoke.py --base https://localhost --insecure
+      - name: Internal metrics answer on the private network only, with the token
+        run: |
+          C="docker compose --env-file .env.production -f docker-compose.prod.yml"
+          $C exec -T api python -c "import urllib.request as u; t=open('/run/secrets/metrics_token').read().strip(); r=u.Request('http://localhost:8000/internal/metrics', headers={'Authorization': 'Bearer '+t}); b=u.urlopen(r).read().decode(); print(b[:1500]); assert 'srs_jobs_finished' in b and 'srs_http_request_duration_seconds_bucket' in b"
+      - if: failure()
+        run: docker compose --env-file .env.production -f docker-compose.prod.yml logs --no-color | tail -300
+
   # Phase 14: known-vulnerability scan of the locked dependency sets. The scanners are pinned (never floating) and
   # installed outside the project lockfile because they are CI tools, not application dependencies.
   dependency-audit:
@@ -163,7 +194,7 @@ jobs:
   # Branch protection should require ONLY this job. A skipped, cancelled or failed job is never green.
   ci-gate:
     if: always()
-    needs: [backend, web, e2e, docker-build, dependency-audit]
+    needs: [backend, web, e2e, docker-build, dependency-audit, deploy-verify]
     runs-on: ubuntu-latest
     steps:
       - name: Every job must have succeeded

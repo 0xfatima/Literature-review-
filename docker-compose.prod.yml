@@ -1,0 +1,161 @@
+# Production stack (Phase 15). Standalone on purpose: nothing from the development file (published ports, .env,
+# unauthenticated Redis) carries over. Procedure: docs/runbooks/deployment.md.
+#
+#   scripts/gen-secrets.sh                  # once: creates ./secrets/* (mode 600, never committed)
+#   cp .env.production.example .env.production && edit
+#   scripts/deploy.sh                       # build, migrate, start, smoke-test
+#
+# Only the proxy publishes ports (80 -> 443 redirect, 443 TLS). Postgres, Redis, API, workers and web are reachable
+# only on the internal network. Secrets are Docker secrets read via SECRETS_DIR=/run/secrets (never env vars).
+name: srs-prod
+
+x-app: &app
+  image: srs-api:${SRS_VERSION:-local}
+  build: { context: ., dockerfile: infra/docker/api.Dockerfile }
+  env_file: .env.production
+  environment: &appenv
+    APP_ENV: production
+    SECRETS_DIR: /run/secrets
+    STORAGE_LOCAL_ROOT: /srv/storage
+    TRUSTED_PROXY_HOPS: "1"          # exactly one trusted hop: the nginx proxy below
+    COOKIE_SECURE: "true"
+  secrets: [database_url, redis_url, session_secret, metrics_token, llm_api_key]
+  volumes: ["storage:/srv/storage"]
+  restart: unless-stopped
+  networks: [internal]
+  logging: &logging
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: srs
+      POSTGRES_DB: srs
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U srs -d srs"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [internal]
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    # Password from a secret; AOF so queued Celery messages survive a Redis restart (Postgres stays authoritative).
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$(cat /run/secrets/redis_password)\" --appendonly yes"]
+    secrets: [redis_password]
+    volumes: ["redisdata:/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$(cat /run/secrets/redis_password)\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [internal]
+    logging: *logging
+
+  migrate:                           # one-shot, before api/workers start; safe to re-run (alembic is idempotent)
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on: { postgres: { condition: service_healthy } }
+
+  api:
+    <<: *app
+    # One process per container (scale with replicas) so per-process request metrics are complete per scrape target.
+    # Uvicorn stops accepting on SIGTERM and lets in-flight requests finish (up to 25 s) before exiting.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "25",
+              "--no-server-header"]
+    stop_grace_period: 30s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  worker-interactive:                # protocol steps, searches, relevance, synthesis, pipeline; also system tasks
+    <<: *app
+    image: srs-worker:${SRS_VERSION:-local}
+    build: { context: ., dockerfile: infra/docker/worker.Dockerfile }
+    command: ["celery", "-A", "app.jobs.celery_app:celery_app", "worker", "-Q", "interactive,system,celery",
+              "--concurrency=${WORKER_INTERACTIVE_CONCURRENCY:-4}", "--prefetch-multiplier=1", "-n", "interactive@%h",
+              "--loglevel=INFO"]
+    stop_grace_period: 90s           # > WORKER_DRAIN_TIMEOUT_S: running jobs stop at their next checkpoint
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.jobs.celery_app:celery_app inspect ping -d interactive@$$HOSTNAME -t 5 >/dev/null"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  worker-heavy:                      # PDF parsing/OCR, AI extraction and appraisal (CPU/memory heavy)
+    <<: *app
+    image: srs-worker:${SRS_VERSION:-local}
+    build: { context: ., dockerfile: infra/docker/worker.Dockerfile }
+    command: ["celery", "-A", "app.jobs.celery_app:celery_app", "worker", "-Q", "heavy",
+              "--concurrency=${WORKER_HEAVY_CONCURRENCY:-2}", "--prefetch-multiplier=1", "-n", "heavy@%h",
+              "--loglevel=INFO"]
+    stop_grace_period: 90s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  beat:                              # EXACTLY ONE: schedules the sweep, the admission pump and the purge
+    <<: *app
+    image: srs-worker:${SRS_VERSION:-local}
+    build: { context: ., dockerfile: infra/docker/worker.Dockerfile }
+    command: ["celery", "-A", "app.jobs.celery_app:celery_app", "beat", "--loglevel=INFO",
+              "--schedule=/tmp/celerybeat-schedule"]
+    volumes: []
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+      args: { API_BASE_URL: http://api:8000 }
+    image: srs-web:${SRS_VERSION:-local}
+    environment: { API_BASE_URL: "http://api:8000" }
+    restart: unless-stopped
+    networks: [internal]
+    depends_on: [api]
+    logging: *logging
+
+  proxy:
+    image: nginx:1.27-alpine
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./infra/proxy/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ${TLS_CERT_DIR:-./infra/proxy/certs}:/etc/nginx/certs:ro     # fullchain.pem + privkey.pem
+      - acme:/var/www/acme:ro                                        # HTTP-01 challenges (certbot --webroot)
+    restart: unless-stopped
+    networks: [internal]
+    depends_on: [api, web]
+    logging: *logging
+
+networks:
+  internal: {}
+
+volumes:
+  pgdata:
+  redisdata:
+  storage:
+  acme:
+
+secrets:
+  postgres_password: { file: ./secrets/postgres_password }
+  redis_password: { file: ./secrets/redis_password }
+  database_url: { file: ./secrets/database_url }
+  redis_url: { file: ./secrets/redis_url }
+  session_secret: { file: ./secrets/session_secret }
+  metrics_token: { file: ./secrets/metrics_token }
+  llm_api_key: { file: ./secrets/llm_api_key }

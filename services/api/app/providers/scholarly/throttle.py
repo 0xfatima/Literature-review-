@@ -21,6 +21,14 @@ class Throttle(Protocol):
     def wait(self, key: str, min_interval_s: float) -> None: ...
 
 
+def penalize(throttle: Any, key: str, seconds: float | None) -> None:
+    """Phase 15: after a provider answers 429, make EVERY process wait (not just the one that was told), so a quota
+    breach is not repeated N times by N workers. Throttles without `penalize` (test fakes) are left alone."""
+    fn = getattr(throttle, "penalize", None)
+    if fn is not None and seconds and seconds > 0:
+        fn(key, min(float(seconds), 300.0))
+
+
 class LocalThrottle:
     def __init__(self, clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
         self._clock, self._sleep = clock, sleep
@@ -37,12 +45,27 @@ class LocalThrottle:
         if start > now:
             self._sleep(start - now)
 
+    def penalize(self, key: str, seconds: float) -> None:
+        with self._lock:
+            now = self._clock()
+            self._next[key] = max(self._next.get(key, now), now + seconds)
+
 
 class RedisThrottle:
     def __init__(self, client: Any, *, sleep: Callable[[float], None] = time.sleep, max_wait_s: float = 120.0):
         self._r, self._sleep, self._max_wait = client, sleep, max_wait_s
         self._fallback = LocalThrottle()
         self._warned = False
+
+    def penalize(self, key: str, seconds: float) -> None:
+        """Extend the shared spacing key to at least `seconds` (never shortens an existing longer wait)."""
+        ms = max(1, int(seconds * 1000))
+        try:
+            ttl = self._r.pttl(f"throttle:{key}")
+            if not isinstance(ttl, int) or ttl < ms:
+                self._r.set(f"throttle:{key}", "1", px=ms)
+        except Exception:  # noqa: BLE001
+            self._fallback.penalize(key, seconds)
 
     def wait(self, key: str, min_interval_s: float) -> None:
         if min_interval_s <= 0:

@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from app.core.distributed import RedisSemaphore, Slots
 from app.providers.llm.base import ConsentToken, LLMError, LLMGateway, LLMProvider, LLMResult
 
 __all__ = [
@@ -82,8 +83,22 @@ def build_gateway(settings: Any, *, client: httpx.Client | None = None) -> LLMGa
         provider,
         send_private_documents=settings.llm_send_private_documents,
         terms_reviewed=terms_record_ok(settings),
-        slots=_slots(int(getattr(settings, "llm_max_concurrent_calls", 4) or 4)),
+        slots=_slot_limiter(settings),
     )
+
+
+def _slot_limiter(settings: Any) -> Slots:
+    local = _slots(int(getattr(settings, "llm_max_concurrent_calls", 4) or 4))
+    n = int(getattr(settings, "llm_global_max_concurrent_calls", 0) or 0)
+    if n <= 0:
+        return Slots(local, None)
+    try:
+        import redis
+
+        client = redis.Redis.from_url(settings.redis_url, socket_timeout=2, socket_connect_timeout=2)
+    except Exception:  # noqa: BLE001 - see RedisSemaphore: degrade to the per-process limit
+        return Slots(local, None)
+    return Slots(local, RedisSemaphore(client, f"llm:{settings.llm_provider}", n))
 
 
 _SLOTS: dict[int, threading.BoundedSemaphore] = {}

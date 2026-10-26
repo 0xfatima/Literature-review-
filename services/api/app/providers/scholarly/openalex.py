@@ -52,6 +52,7 @@ def rebuild_abstract(inverted: Any) -> str | None:
 
 
 class OpenAlexSource:
+    endpoint: str = ENDPOINT  # Phase 15: overridable via SCHOLARLY_ENDPOINTS (registry)
     key = "openalex"
     label = "OpenAlex"
     tier = "open_access"
@@ -86,7 +87,7 @@ class OpenAlexSource:
         params = {"search": r.text, "select": SELECT}
         if parts:
             params["filter"] = ",".join(parts)
-        return ProviderQuery(self.key, ENDPOINT, r.text, params, applied, limitations)
+        return ProviderQuery(self.key, self.endpoint, r.text, params, applied, limitations)
 
     def fetch_page(self, http: HttpFetcher, query: ProviderQuery, cursor: str | None, page_size: int) -> Page:
         params: dict[str, Any] = {
