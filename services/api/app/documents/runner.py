@@ -114,8 +114,9 @@ def run_child(
 
 
 def _kill(proc: subprocess.Popen[bytes]) -> None:
-    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
-        os.killpg(proc.pid, signal.SIGKILL)
+    if os.name == "posix":
+        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+            os.killpg(proc.pid, signal.SIGKILL)  # type: ignore[attr-defined]
     with contextlib.suppress(ProcessLookupError, OSError):
         proc.kill()
 

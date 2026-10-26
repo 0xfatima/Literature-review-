@@ -43,16 +43,17 @@ def load_pymupdf() -> Any:
 
 
 def limit_resources(mem_mb: int, cpu_s: int) -> None:
-    try:
-        import resource
-    except ImportError:  # not POSIX: the parent's timeout is then the only limit
-        return
-    if mem_mb > 0:
-        limit = mem_mb * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
-    if cpu_s > 0:
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s + 5))
-    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        try:
+            import resource
+        except ImportError:  # not POSIX: the parent's timeout is then the only limit
+            return
+
+        if mem_mb > 0:
+            limit = mem_mb * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))  # type: ignore[attr-defined]
+        if cpu_s > 0:
+            resource.setrlimit(resource.RLIMIT_CPU, (cpu_s, cpu_s + 5))  # type: ignore[attr-defined]
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))  # type: ignore[attr-defined]
 
 
 def active_content(path: Path) -> list[str]:

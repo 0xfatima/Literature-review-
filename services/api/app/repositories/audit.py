@@ -71,7 +71,11 @@ def page(
             tuple_(AuditEvent.at, AuditEvent.id)
             < tuple_(literal(after[0], AuditEvent.at.type), literal(after[1], AuditEvent.id.type))
         )
-    rows = list(db.scalars(q.order_by(AuditEvent.at.desc(), AuditEvent.id.desc()).limit(limit + 1)))
+    rows: list[AuditEvent] = list(
+        db.scalars(
+            q.order_by(AuditEvent.at.desc(), AuditEvent.id.desc()).limit(limit + 1)
+        )
+    )
     return rows[:limit], len(rows) > limit
 
 
@@ -87,7 +91,7 @@ def stream(db: Session, q: Select[tuple[AuditEvent]], *, max_rows: int, batch: i
                 > tuple_(literal(last[0], AuditEvent.at.type), literal(last[1], AuditEvent.id.type))
             )
         qq = qq.order_by(AuditEvent.at.asc(), AuditEvent.id.asc()).limit(min(batch, max_rows - sent))
-        rows = list(db.scalars(qq))
+        rows: list[AuditEvent] = list(db.scalars(qq))
         if not rows:
             return
         yield from rows
