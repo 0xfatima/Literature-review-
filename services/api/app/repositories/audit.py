@@ -71,11 +71,7 @@ def page(
             tuple_(AuditEvent.at, AuditEvent.id)
             < tuple_(literal(after[0], AuditEvent.at.type), literal(after[1], AuditEvent.id.type))
         )
-    rows: list[AuditEvent] = list(
-        db.scalars(
-            q.order_by(AuditEvent.at.desc(), AuditEvent.id.desc()).limit(limit + 1)
-        )
-    )
+    rows: list[AuditEvent] = list(db.scalars(q.order_by(AuditEvent.at.desc(), AuditEvent.id.desc()).limit(limit + 1)))
     return rows[:limit], len(rows) > limit
 
 
