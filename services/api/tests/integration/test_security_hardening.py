@@ -61,8 +61,10 @@ def test_csv_export_is_itself_audited_and_has_no_free_text(user_client, db):
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
     assert "ZZZ" not in r.text
     rows = list(csv.DictReader(io.StringIO(r.text)))
-    assert [row["action"] for row in rows] == ["project.created"]  # the export event is committed after the read
-    assert rows[0]["actor"] == "you"
+    # The export is recorded and committed BEFORE the read (an export can never happen unaudited), so the file
+    # ends with its own audit.exported event.
+    assert [row["action"] for row in rows] == ["project.created", "audit.exported"]
+    assert all(row["actor"] == "you" for row in rows)
     exported = db.scalars(select(AuditEvent).where(AuditEvent.action == "audit.exported")).all()
     assert any(str(e.project_id) == pid and str(e.actor_id) == uid for e in exported)
 
