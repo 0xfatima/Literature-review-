@@ -29,7 +29,7 @@ $COMPOSE build
 
 if [ -z "$SKIP_BACKUP" ] && [ -n "$($COMPOSE ps -q postgres 2>/dev/null)" ]; then
   echo "== backup before upgrade"
-  scripts/backup.sh ./backups
+  bash scripts/backup.sh ./backups   # via bash: works even if the executable bit was lost (e.g. Windows checkout)
 fi
 
 echo "== database + broker, then migrations"

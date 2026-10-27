@@ -150,19 +150,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: Lockfiles must exist
         run: test -f requirements.lock.txt && test -f apps/web/package-lock.json
+      - name: Shell scripts are executable in git (a lost +x bit fails with exit 126)
+        run: |
+          bad="$(git ls-files -s -- '*.sh' | awk '$1 != "100755" {print $4}')"
+          if [ -n "$bad" ]; then echo "not executable in git (fix: git update-index --chmod=+x <file>):"; echo "$bad"; exit 1; fi
       - name: Production configuration, secrets and a self-signed certificate
         run: |
           cp .env.production.example .env.production
           sed -i 's#https://reviews.example.org#https://localhost#g; s#^SRS_VERSION=.*#SRS_VERSION=ci#' .env.production
-          scripts/gen-secrets.sh
+          bash scripts/gen-secrets.sh
           mkdir -p infra/proxy/certs
           openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost \
             -keyout infra/proxy/certs/privkey.pem -out infra/proxy/certs/fullchain.pem
           chmod 644 infra/proxy/certs/privkey.pem
       - name: Deploy with scripts/deploy.sh (pre-flight, build, migrate, start, smoke test over HTTPS)
-        run: scripts/deploy.sh --insecure
+        run: bash scripts/deploy.sh --insecure
       - name: Backup and restore exercise (rows AND uploaded files come back)
-        run: scripts/restore-drill.sh https://localhost --insecure
+        run: bash scripts/restore-drill.sh https://localhost --insecure
         env: { COMPOSE: "docker compose --env-file .env.production -f docker-compose.prod.yml" }
       - name: Smoke test again after the restore
         run: python3 scripts/smoke.py --base https://localhost --insecure
