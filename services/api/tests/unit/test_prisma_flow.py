@@ -208,3 +208,35 @@ def test_valid_flow_has_no_violations():
         included_studies=2,
     )
     assert validate(f) == []
+
+
+def test_full_text_outcome_implies_title_abstract_inclusion():
+    """Each step supersedes the previous event, so a record's only current event can be its full-text outcome.
+    The fold must still count it as included at title/abstract and sought for retrieval."""
+    from app.prisma.flow import compute
+
+    events = [
+        {"paper_id": "a", "stage": "included", "pathway": "A", "source_tag": "openalex"},
+        {"paper_id": "b", "stage": "ft_excluded", "pathway": "A", "reason_code": "wrong_population"},
+        {"paper_id": "c", "stage": "not_retrieved", "pathway": "A"},
+        {"paper_id": "d", "stage": "ta_included", "pathway": "A"},
+        {"paper_id": "e", "stage": "ta_excluded", "pathway": "A"},
+        {"paper_id": "f", "stage": "identified", "pathway": "A"},
+        {"paper_id": "g", "stage": "included", "pathway": "B", "source_tag": "citation"},
+    ]
+    f = compute(events)
+    assert f.violations == []
+    assert (f.identified_a, f.screened, f.ta_excluded, f.ta_included_a, f.pending_ta) == (6, 6, 1, 4, 1)
+    assert (f.sought_retrieval, f.not_retrieved, f.ft_assessed, f.pending_retrieval) == (5, 1, 3, 1)
+    assert (f.ta_included_b, f.included_reports, f.ft_excluded) == (1, 2, 1)
+
+
+def test_explicit_title_abstract_event_is_not_counted_twice():
+    from app.prisma.flow import compute
+
+    events = [
+        {"paper_id": "a", "stage": "ta_included", "pathway": "A"},
+        {"paper_id": "a", "stage": "included", "pathway": "A"},
+    ]
+    f = compute(events)
+    assert f.ta_included_a == 1 and f.included_reports == 1 and f.violations == []

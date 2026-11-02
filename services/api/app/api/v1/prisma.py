@@ -83,3 +83,49 @@ def create_study(
         notes=body.get("notes") or None,
     )
     return {"id": str(study.id), "short_name": study.short_name, "project_id": str(study.project_id)}
+
+
+@router.get("/prisma/ft-queue")
+def ft_queue(
+    status: str | None = None,
+    project: Project = Depends(get_owned_project),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Records awaiting or holding a full-text outcome, with counts per status. Derived from stored data only."""
+    return prisma_service.ft_queue(db, project.id, status=status)
+
+
+@router.post("/prisma/retrieval/{paper_id}")
+def mark_retrieval(
+    paper_id: uuid.UUID,
+    body: dict[str, Any],
+    project: Project = Depends(get_owned_project),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Mark a report as not retrieved (PRISMA 'reports not retrieved'), or undo that with {"retrieved": true}."""
+    return prisma_service.mark_retrieval(
+        db,
+        project_id=project.id,
+        paper_id=paper_id,
+        user_id=user.id,
+        retrieved=bool(body.get("retrieved")),
+        note=body.get("note") if isinstance(body.get("note"), str) else None,
+    )
+
+
+@router.get("/studies")
+def list_studies(project: Project = Depends(get_owned_project), db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Included reports grouped into studies; ungrouped reports count as one study each."""
+    return prisma_service.list_studies(db, project.id)
+
+
+@router.delete("/studies/{study_id}", status_code=204)
+def ungroup_study(
+    study_id: uuid.UUID,
+    project: Project = Depends(get_owned_project),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Dissolve a study grouping. The reports themselves and every decision stay as they were."""
+    prisma_service.ungroup_study(db, project.id, study_id, user_id=user.id)

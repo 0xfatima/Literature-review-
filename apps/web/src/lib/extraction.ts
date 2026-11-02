@@ -1,5 +1,5 @@
 import { toApiError } from "@/lib/api";
-import type { EvidenceItem, EvidenceStatus, FieldDefinition } from "@/lib/types";
+import type { EvidenceItem, EvidenceStatus, FieldCoverage, FieldDefinition } from "@/lib/types";
 
 export const EVIDENCE_LABELS: Record<EvidenceStatus, string> = {
   found: "Found",
@@ -107,4 +107,53 @@ export async function downloadEvidenceCsv(projectId: string, schemaId: string): 
   a.click();
   URL.revokeObjectURL(url);
   return res.headers.get("x-evidence-output-id") ?? "";
+}
+
+// ---------- Research-question coverage ----------
+
+export type QuestionCoverageStatus =
+  "answered" | "partial" | "not_found" | "no_full_text" | "not_assessed" | "no_fields";
+
+export const QUESTION_COVERAGE_LABELS: Record<QuestionCoverageStatus, string> = {
+  answered: "Answered",
+  partial: "Partially addressed",
+  not_found: "Not found",
+  no_full_text: "Not found: no full text",
+  not_assessed: "Not assessed",
+  no_fields: "No fields mapped",
+};
+
+export const QUESTION_COVERAGE_HELP: Record<QuestionCoverageStatus, string> = {
+  answered: "Evidence was found for every mapped field in every included paper.",
+  partial: "Some evidence was found; other values are missing, ambiguous or not extracted yet.",
+  not_found: "The full texts were read but none of the mapped information was found.",
+  no_full_text:
+    "No mapped evidence could be checked because the full texts are missing. This is not evidence of absence.",
+  not_assessed: "Nothing has been extracted for this question yet.",
+  no_fields: "Map at least one extraction field to this question to track its coverage.",
+};
+
+/**
+ * A question's coverage, from its mapped fields' evidence counts. "Answered" means evidence was LOCATED for every
+ * mapped field in every included paper; it says nothing about what the evidence concludes. Missing full text is
+ * reported separately so it is never mistaken for the information being absent.
+ */
+export function questionCoverage(fields: FieldCoverage[], includedPapers: number): QuestionCoverageStatus {
+  if (fields.length === 0) return "no_fields";
+  if (includedPapers === 0) return "not_assessed";
+  const sum = (
+    k: keyof Pick<FieldCoverage, "found" | "not_located" | "unavailable" | "ambiguous" | "pending">,
+  ) => fields.reduce((n, f) => n + Math.max(0, f[k]), 0);
+  const found = sum("found");
+  const notLocated = sum("not_located");
+  const unavailable = sum("unavailable");
+  const ambiguous = sum("ambiguous");
+  const pending = sum("pending");
+  const total = found + notLocated + unavailable + ambiguous + pending;
+  if (total === 0 || pending === total) return "not_assessed";
+  if (found === 0) {
+    if (pending > 0 || ambiguous > 0) return pending > 0 ? "not_assessed" : "partial";
+    return notLocated === 0 ? "no_full_text" : "not_found";
+  }
+  return found === total ? "answered" : "partial";
 }

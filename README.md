@@ -1,10 +1,10 @@
 # Systematic Review Scientist
 
 Human-in-the-loop systematic-review workbench (protocol → search → screening → PDFs → evidence extraction → synthesis → draft) with provenance and an audit trail.
-Source of truth: `docs/requirements/`. Architecture: `docs/architecture/ADR-0001-initial-architecture.md` (Accepted, with amendments A1–A8).
+Source of truth: `docs/requirements/`. Architecture: `docs/architecture/ADR-0001-initial-architecture.md` (Accepted, with amendments A1–A13).
 
 **Status: Phase 15 (performance, concurrency and deployment) complete pending CI.** Fair job admission across users, cross-process limits that protect AI and scholarly provider quotas, Prometheus metrics, measured performance (`docs/performance.md`), a production Compose stack with TLS and Docker secrets, and a documented deploy with smoke test and backup/restore drill (`docs/runbooks/deployment.md`). Earlier phases: see `docs/implementation-reports/`.
-The research assistant is **not connected yet**: chat stores your messages and says so; it never invents replies. Exact test results: `docs/implementation-reports/phase-2.md`.
+AI help is optional and advisory: with `LLM_PROVIDER=none` (the default) every stage still works without a model, and the chat says the assistant is not connected. With a model configured (Gemini), AI suggests relevance, evidence values, appraisal judgements and synthesis statements; code checks each suggestion against the source text and a person decides. Private PDF text is sent only when all four gates in `docs/architecture/provider-data-handling.md` pass.
 
 ## Quick start (Docker Compose)
 
@@ -73,11 +73,16 @@ docker compose run --rm api python -m app.cli set-password user@example.com   # 
 Celery tasks live in `app/jobs/` (one package for API and worker) rather than `services/worker/tasks/` as sketched in the spec; the worker is a separate *process* from the same code.
 
 ## Review protocol (Phase 3)
-Open a project, choose the **Protocol** tab and **Start protocol setup**. Questions appear as cards in the *Protocol setup* chat thread; every answer is saved immediately, so you can sign out and continue at the same step later. The same draft can be edited field by field on the Protocol tab. Approval records approver, time and a SHA-256 of the exact content; an approved version can never be edited (database triggers enforce this). **Start a revision** (a reason is required) creates the next version; approving it shows which stages may need rerunning. The questions come from a fixed workflow: **no AI model is used yet**, and the framework suggestion is a transparent keyword rule. After approval the workflow waits at *Search*, which is the next phase.
+Open a project, choose the **Protocol** tab and **Start protocol setup**. Questions appear as cards in the *Protocol setup* chat thread; every answer is saved immediately, so you can sign out and continue at the same step later. The same draft can be edited field by field on the Protocol tab. Approval records approver, time and a SHA-256 of the exact content; an approved version can never be edited (database triggers enforce this). **Start a revision** (a reason is required) creates the next version; approving it shows which stages may need rerunning. The questions come from a fixed workflow, and the framework suggestion is a transparent keyword rule (not an AI judgement). After approval the workflow moves on to *Search*.
 
-## Known limitations (Phase 3)
-See `docs/implementation-reports/phase-3.md` §Known limitations. In short: no LLM assistance yet (rule-based suggestions only); search is not implemented, so "rerun" impact cannot yet point at real results; a started revision cannot be discarded (approve it unchanged to return).
+## Full-text screening and studies
+The **Full text** tab lists every record that passed title/abstract screening. Read the PDF from the paper inspector, then **Include**, mark **Uncertain**, or **Exclude** with a required reason (your protocol's criteria plus standard reasons). **Could not get the full text** records a PRISMA “report not retrieved” (with an optional note) and can be undone. Under **Studies and reports**, group several included reports of the same study; this lowers “studies included” in the PRISMA flow without changing any decision. All of it is audited and counted from the event log, never typed in.
 
-## Known limitations (Phase 2)
-No email verification, MFA or password-reset email · registration reveals whether an email is registered · account deletion not implemented · no OpenAPI→TypeScript client generation yet (API types are hand-written) · no research features yet (protocol, search, screening, PDFs…) · the chat has no assistant yet (messages are stored, no replies) · Papers/Tables/Artifacts tabs and Files show empty states until their phases.
-
+## Known limitations (current)
+Earlier per-phase limitation lists are in `docs/implementation-reports/`. Still open:
+- **Accounts:** no email verification, MFA, self-service password reset or account deletion (operator reset via `python -m app.cli set-password`); registration reveals whether an email is registered.
+- **Search:** OpenAlex, Europe PMC, arXiv and Crossref only; no subscription databases, trial registries, citation chasing or RIS/CSV import, so PRISMA pathway B (“other methods”) has no way to receive records yet. Up to 500 records per source per query.
+- **Screening:** one reviewer per decision (no dual screening); possible duplicates are flagged but cannot be merged in the UI.
+- **Extraction and reports:** the evidence table exports CSV (no XLSX) and shows up to 200 papers on screen; no PDF export of the report, section regeneration or version comparison; the PRISMA flow is exported as counts, not a drawn diagram.
+- **AI:** no labelled evaluation set yet (`evals/` is empty), so relevance is shown as an estimate, never a probability.
+- **Frontend:** API types in `apps/web/src/lib/types.ts` are hand-written.

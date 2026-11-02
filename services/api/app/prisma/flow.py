@@ -171,6 +171,10 @@ def validate(f: PrismaFlow) -> list[dict[str, Any]]:
     return v
 
 
+# Stages that can only be reached after a record passed title/abstract screening.
+FULL_TEXT_OUTCOMES = ("not_retrieved", "ft_excluded", "included")
+
+
 def compute(raw_events: list[dict[str, Any]]) -> PrismaFlow:
     """Fold record_status_event dicts into PRISMA 2020 counts.
 
@@ -228,6 +232,17 @@ def compute(raw_events: list[dict[str, Any]]) -> PrismaFlow:
                 f.ft_excluded_by_reason[rc] = f.ft_excluded_by_reason.get(rc, 0) + 1
             elif stage == "included":
                 f.included_reports += 1
+
+        # A full-text outcome implies the record passed title/abstract screening. Each correction or forward
+        # step supersedes the paper's previous event, so the explicit 'ta_included' event is no longer current
+        # once a full-text outcome exists; count it from the outcome instead, so the record stays in
+        # 'sought for retrieval' and does not fall back into 'awaiting title/abstract screening'.
+        last = evs[-1]
+        if str(last["stage"]) in FULL_TEXT_OUTCOMES and not any(str(e["stage"]) == "ta_included" for e in evs):
+            if str(last.get("pathway") or pathway) == "A":
+                f.ta_included_a += 1
+            else:
+                f.ta_included_b += 1
 
     # Current stage for each paper (last event = where the paper is now)
     all_last = [evs[-1] for evs in paper_events.values()]

@@ -2,13 +2,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ApiError, apiFetch, json } from "@/lib/api";
+import { QUESTION_COVERAGE_HELP, QUESTION_COVERAGE_LABELS, questionCoverage } from "@/lib/extraction";
+import { useProtocol } from "@/components/protocol/hooks";
 import type {
   ExtractionSchema,
   FieldCoverage,
   FieldDefinition,
   FieldType,
+  ProtocolQuestion,
   SchemaCoverage,
 } from "@/lib/types";
+
+type QuestionMap = Record<string, string[]>;
+
+/** Only keep mappings for fields that still exist and questions that are in the approved protocol. */
+function cleanMap(map: QuestionMap, fields: FieldDefinition[], questions: ProtocolQuestion[]): QuestionMap {
+  const keys = new Set(questions.map((q) => q.stable_key).filter((k): k is string => !!k));
+  const out: QuestionMap = {};
+  for (const f of fields) {
+    const qs = (map[f.field_key] ?? []).filter((q) => keys.has(q));
+    if (qs.length) out[f.field_key] = qs;
+  }
+  return out;
+}
 
 const FIELD_TYPES: FieldType[] = ["text", "number", "choice", "multi_choice", "boolean", "date"];
 const TYPE_LABELS: Record<FieldType, string> = {
@@ -65,10 +81,20 @@ function CoverageBar({ cov }: { cov: FieldCoverage }) {
 function FieldEditor({
   fields,
   onChange,
+  questions,
+  map,
+  onMapChange,
 }: {
   fields: FieldDefinition[];
   onChange: (f: FieldDefinition[]) => void;
+  questions: ProtocolQuestion[];
+  map: QuestionMap;
+  onMapChange: (m: QuestionMap) => void;
 }) {
+  const toggleQuestion = (fieldKey: string, q: string) => {
+    const cur = map[fieldKey] ?? [];
+    onMapChange({ ...map, [fieldKey]: cur.includes(q) ? cur.filter((x) => x !== q) : [...cur, q] });
+  };
   const add = () =>
     onChange([...fields, { field_key: `field_${fields.length + 1}`, label: "", type: "text" }]);
   const update = (i: number, patch: Partial<FieldDefinition>) => {
@@ -176,6 +202,28 @@ function FieldEditor({
               />
             </div>
           )}
+          {questions.length > 0 && (
+            <fieldset className="mt-2">
+              <legend className="text-2xs text-muted">Helps answer research question(s)</legend>
+              <div className="mt-0.5 flex flex-col gap-0.5">
+                {questions.map((q, qi) =>
+                  q.stable_key ? (
+                    <label key={q.stable_key} className="flex items-start gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={(map[f.field_key] ?? []).includes(q.stable_key)}
+                        onChange={() => toggleQuestion(f.field_key, q.stable_key!)}
+                      />
+                      <span>
+                        Q{qi + 1}. {q.text}
+                      </span>
+                    </label>
+                  ) : null,
+                )}
+              </div>
+            </fieldset>
+          )}
         </div>
       ))}
       <button type="button" className="btn-secondary self-start" onClick={add}>
@@ -185,7 +233,60 @@ function FieldEditor({
   );
 }
 
-function CoverageView({ projectId, schema }: { projectId: string; schema: ExtractionSchema }) {
+/** "→ Q1, Q3" for a field, or a prompt to link it; numbers follow the approved protocol's question order. */
+function linkedQuestions(
+  fieldKey: string,
+  map: QuestionMap | undefined,
+  questions: ProtocolQuestion[],
+): string {
+  if (questions.length === 0) return "";
+  const keys = map?.[fieldKey] ?? [];
+  const nums = questions.flatMap((q, i) =>
+    q.stable_key && keys.includes(q.stable_key) ? [`Q${i + 1}`] : [],
+  );
+  return nums.length ? `→ ${nums.join(", ")}` : "· not linked to a question";
+}
+
+function QuestionCoverageList({ data, questions }: { data: SchemaCoverage; questions: ProtocolQuestion[] }) {
+  if (questions.length === 0) return null;
+  return (
+    <div className="mb-3 flex flex-col gap-2">
+      <h5 className="section-title">Research-question coverage</h5>
+      {questions.map((q, qi) => {
+        const fields = (q.stable_key && data.by_question[q.stable_key]?.fields) || [];
+        const st = questionCoverage(fields, data.included_papers);
+        return (
+          <div key={q.stable_key ?? qi} className="rounded border border-line p-2">
+            <p className="text-sm">
+              <span className="font-medium">Q{qi + 1}.</span> {q.text}
+            </p>
+            <p className="text-xs">
+              <span className="font-medium">{QUESTION_COVERAGE_LABELS[st]}</span>
+              <span className="text-muted"> · {QUESTION_COVERAGE_HELP[st]}</span>
+            </p>
+            {fields.length > 0 && (
+              <p className="text-2xs text-muted">Fields: {fields.map((f) => f.label).join(", ")}</p>
+            )}
+          </div>
+        );
+      })}
+      <p className="text-2xs text-muted">
+        “Answered” means evidence was located for every linked field in every included paper. It does not
+        judge what the evidence concludes.
+      </p>
+    </div>
+  );
+}
+
+function CoverageView({
+  projectId,
+  schema,
+  questions,
+}: {
+  projectId: string;
+  schema: ExtractionSchema;
+  questions: ProtocolQuestion[];
+}) {
   const { data, isLoading } = useQuery({
     queryKey: ["extraction", projectId, schema.id, "coverage"],
     queryFn: () =>
@@ -208,6 +309,7 @@ function CoverageView({ projectId, schema }: { projectId: string; schema: Extrac
           No papers are included yet. Coverage will appear here once papers are included.
         </p>
       )}
+      {data.included_papers > 0 && <QuestionCoverageList data={data} questions={questions} />}
       {data.included_papers > 0 && (
         <div className="flex flex-col gap-1">
           {allFields.map((cov) => (
@@ -230,6 +332,9 @@ export default function ExtractionPanel({ projectId, canWrite }: { projectId: st
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draftFields, setDraftFields] = useState<FieldDefinition[]>([]);
+  const [draftMap, setDraftMap] = useState<QuestionMap>({});
+  const protocol = useProtocol(projectId);
+  const questions: ProtocolQuestion[] = protocol.data?.approved?.content.questions ?? [];
   const [error, setError] = useState<string | null>(null);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["extraction", projectId] });
@@ -248,7 +353,10 @@ export default function ExtractionPanel({ projectId, canWrite }: { projectId: st
 
   const create = useMutation({
     mutationFn: (fields: FieldDefinition[]) =>
-      apiFetch(`/projects/${projectId}/extraction/schemas`, json({ field_definitions: fields })),
+      apiFetch(
+        `/projects/${projectId}/extraction/schemas`,
+        json({ field_definitions: fields, question_map: cleanMap(draftMap, fields, questions) }),
+      ),
     onSuccess: () => {
       setEditing(false);
       setError(null);
@@ -260,7 +368,11 @@ export default function ExtractionPanel({ projectId, canWrite }: { projectId: st
   const update = useMutation({
     mutationFn: ({ id, fields, rv }: { id: string; fields: FieldDefinition[]; rv: number }) =>
       apiFetch(`/projects/${projectId}/extraction/schemas/${id}`, {
-        ...json({ field_definitions: fields, expected_row_version: rv }),
+        ...json({
+          field_definitions: fields,
+          question_map: cleanMap(draftMap, fields, questions),
+          expected_row_version: rv,
+        }),
         method: "PATCH",
       }),
     onSuccess: () => {
@@ -285,11 +397,13 @@ export default function ExtractionPanel({ projectId, canWrite }: { projectId: st
 
   const startEdit = (s: ExtractionSchema) => {
     setDraftFields(s.field_definitions);
+    setDraftMap(s.question_map ?? {});
     setEditing(true);
     setError(null);
   };
 
   const startNew = () => {
+    setDraftMap(approved?.question_map ?? {});
     setDraftFields([
       {
         field_key: "study_design",
@@ -332,7 +446,18 @@ export default function ExtractionPanel({ projectId, canWrite }: { projectId: st
               {error}
             </p>
           )}
-          <FieldEditor fields={draftFields} onChange={setDraftFields} />
+          {questions.length === 0 && (
+            <p className="mb-2 text-xs text-muted">
+              Approve the protocol to link fields to its research questions.
+            </p>
+          )}
+          <FieldEditor
+            fields={draftFields}
+            onChange={setDraftFields}
+            questions={questions}
+            map={draftMap}
+            onMapChange={setDraftMap}
+          />
           <div className="mt-3 flex gap-2">
             <button
               type="button"
@@ -387,6 +512,9 @@ export default function ExtractionPanel({ projectId, canWrite }: { projectId: st
                   <li key={f.field_key} className="flex items-baseline gap-2">
                     <span className="font-medium">{f.label}</span>
                     <span className="text-xs text-muted">({TYPE_LABELS[f.type]})</span>
+                    <span className="text-xs text-muted">
+                      {linkedQuestions(f.field_key, draft.question_map, questions)}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -414,7 +542,7 @@ export default function ExtractionPanel({ projectId, canWrite }: { projectId: st
                   </li>
                 ))}
               </ul>
-              <CoverageView projectId={projectId} schema={approved} />
+              <CoverageView projectId={projectId} schema={approved} questions={questions} />
             </div>
           )}
 

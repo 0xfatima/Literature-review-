@@ -175,3 +175,35 @@ def test_report_requires_an_approved_protocol(user_client):
     pid = c.post("/api/v1/projects", json={"title": "P", "topic": "t"}).json()["id"]
     r = c.post(f"/api/v1/projects/{pid}/reports", json={})
     assert r.status_code == 409 and r.json()["error"]["code"] == "protocol_not_approved"
+
+
+def test_failed_export_is_reported_and_leaves_no_partial_record(user_client, dispatcher, object_store, db, monkeypatch):
+    """Export failure: the user gets the standard error envelope with a correlation id, no export row or
+    'report.exported' audit event is written for the failed attempt, and the next export works."""
+    from fastapi.testclient import TestClient
+
+    from app.reports import render
+
+    c, pid, _sid, _p1, _ = accepted_project(user_client, dispatcher, object_store, db)
+    rep = c.post(f"/api/v1/projects/{pid}/reports", json={}).json()
+    url = f"/api/v1/projects/{pid}/reports/{rep['id']}/exports"
+
+    def boom(_data):
+        raise RuntimeError("renderer crashed")
+
+    monkeypatch.setattr(render, "render_docx", boom)
+    quiet = TestClient(c.app, headers=dict(c.headers), base_url=str(c.base_url), raise_server_exceptions=False)
+    quiet.cookies = c.cookies
+    r = quiet.post(url, json={"format": "docx"})
+    assert r.status_code == 500
+    err = r.json()["error"]
+    assert err["code"] == "internal_error" and "renderer crashed" not in r.text  # internals are not leaked
+    assert err["correlation_id"] and r.headers["x-correlation-id"] == err["correlation_id"]
+    assert r.headers["x-content-type-options"] == "nosniff"  # security headers on errors too
+    assert c.get(url).json() == []
+    events = c.get(f"/api/v1/projects/{pid}/audit-events", params={"limit": 100}).json()["items"]
+    assert "report.exported" not in {e["action"] for e in events}
+
+    monkeypatch.undo()
+    ok = c.post(url, json={"format": "markdown"})
+    assert ok.status_code == 200 and len(c.get(url).json()) == 1

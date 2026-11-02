@@ -667,7 +667,7 @@ export interface PrismaFlow {
 export interface FtReason {
   code: string;
   label: string;
-  group: string;
+  group: "exclusion_criterion" | "inclusion_not_met" | "generic";
 }
 
 /* ---------- Phase 8: extraction schemas ---------- */
@@ -1182,4 +1182,42 @@ export interface AuditEventView {
 export interface AuditPage {
   items: AuditEventView[];
   next_cursor: string | null;
+}
+
+// ---------- Full-text screening and studies ----------
+export type FtStatus = "awaiting" | "uncertain" | "included" | "excluded" | "not_retrieved";
+export interface ReportBrief {
+  id: string;
+  title: string;
+  year: number | null;
+  venue: string | null;
+  doi: string | null;
+  first_author: string | null;
+  author_count: number;
+  full_text_status: "not_obtained" | "uploaded" | "parsed" | "failed";
+  study_id: string | null;
+}
+export interface FtQueueItem extends ReportBrief {
+  status: FtStatus;
+  reason_code: string | null;
+  reason_label: string | null;
+  note: string | null;
+  row_version: number | null;
+  decided_at: string | null;
+}
+export interface FtQueue {
+  items: FtQueueItem[];
+  counts: Record<FtStatus, number>;
+}
+export interface StudyGroup {
+  id: string;
+  short_name: string | null;
+  notes: string | null;
+  reports: ReportBrief[];
+}
+export interface StudiesList {
+  studies: StudyGroup[];
+  ungrouped_reports: ReportBrief[];
+  included_reports: number;
+  included_studies: number;
 }
