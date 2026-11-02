@@ -94,7 +94,13 @@ export default function StatusBar({ project }: { project: Project }) {
           <span key={j.id} className="flex items-center gap-2" data-testid="active-job">
             <span className="text-ink">{jobLabel(j)}</span>
             <span>
-              {j.status === "queued" ? "Queued" : j.cancel_requested ? "Cancelling" : `${j.progress}%`}
+              {j.status === "queued"
+                ? j.waiting_for_capacity
+                  ? "Waiting for capacity"
+                  : "Queued"
+                : j.cancel_requested
+                  ? "Cancelling"
+                  : `${j.progress}%`}
             </span>
             <progress
               className="h-1.5 w-20 accent-mark"

@@ -2,15 +2,33 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from celery import Celery
-from celery.signals import task_postrun, task_prerun
+from celery.signals import task_postrun, task_prerun, worker_shutdown, worker_shutting_down
+from kombu import Queue
 
+from app.core import shutdown
 from app.core.config import get_settings
 from app.core.context import reset_actor_process, set_actor_process
 
 _s = get_settings()
+QUEUE_INTERACTIVE, QUEUE_HEAVY, QUEUE_SYSTEM, QUEUE_LEGACY = "interactive", "heavy", "system", "celery"
+TASK_QUEUES = {
+    "system.ping": QUEUE_INTERACTIVE,
+    "workflow.advance": QUEUE_INTERACTIVE,
+    "pipeline.advance": QUEUE_INTERACTIVE,
+    "search.run": QUEUE_INTERACTIVE,  # mostly waiting on provider spacing; keeps searches responsive
+    "relevance.assess": QUEUE_INTERACTIVE,
+    "synthesis.draft": QUEUE_INTERACTIVE,
+    "document.process": QUEUE_HEAVY,  # CPU-bound PDF parsing / OCR
+    "extraction.run": QUEUE_HEAVY,
+    "appraisal.suggest": QUEUE_HEAVY,
+    "system.sweep_jobs": QUEUE_SYSTEM,
+    "system.pump_jobs": QUEUE_SYSTEM,
+    "system.purge_documents": QUEUE_SYSTEM,
+}
 celery_app = Celery("srs", broker=_s.redis_url, include=["app.jobs.tasks"])
 celery_app.conf.update(
     task_acks_late=True,  # message is acked only after the task finishes ...
@@ -25,8 +43,16 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
+    # Phase 15: three queues so bulk work cannot starve user-facing steps. A worker started without -Q consumes all of
+    # them (development); production runs separate pools (docker-compose.prod.yml).
+    # "celery" (Celery's default) stays consumed: messages from producers without these routes (an older API
+    # process during a rolling deploy, external tools) must never be stranded.
+    task_queues=(Queue(QUEUE_INTERACTIVE), Queue(QUEUE_HEAVY), Queue(QUEUE_SYSTEM), Queue(QUEUE_LEGACY)),
+    task_default_queue=QUEUE_INTERACTIVE,
+    task_routes={name: {"queue": q} for name, q in TASK_QUEUES.items()},
     beat_schedule={
         "sweep-jobs": {"task": "system.sweep_jobs", "schedule": _s.job_sweep_interval_s},
+        "pump-jobs": {"task": "system.pump_jobs", "schedule": _s.job_pump_interval_s},
         "purge-documents": {"task": "system.purge_documents", "schedule": _s.document_purge_interval_s},
     },
 )
@@ -55,5 +81,33 @@ task_prerun.connect(_attribute_audit_to_task, weak=False)
 task_postrun.connect(_clear_audit_attribution, weak=False)
 
 
+def _admit_after_task(task: Any = None, **_: Any) -> None:
+    """A finished job frees capacity: admit waiting jobs now instead of at the next pump tick (Phase 15)."""
+    name = getattr(task, "name", "") or ""
+    if name.startswith("system."):
+        return
+    try:
+        from app.db.session import get_sessionmaker
+        from app.services import job_service
+
+        with get_sessionmaker()() as db:
+            job_service.pump(db, get_settings(), send_task, wait_for_lock=False)
+    except Exception:  # noqa: BLE001 - the periodic pump will admit them; never fail the finished task for this
+        logging.getLogger(__name__).warning("post-task admission pump failed; the periodic pump will retry")
+
+
+def _on_worker_shutting_down(**_: Any) -> None:
+    shutdown.begin_drain()
+
+
+def _on_worker_shutdown(**_: Any) -> None:
+    shutdown.end_drain()
+
+
+task_postrun.connect(_admit_after_task, weak=False)
+worker_shutting_down.connect(_on_worker_shutting_down, weak=False)
+worker_shutdown.connect(_on_worker_shutdown, weak=False)
+
+
 def send_task(task_name: str, job_id: str) -> None:
-    celery_app.send_task(task_name, args=[job_id], retry=False)
+    celery_app.send_task(task_name, args=[job_id], retry=False, queue=TASK_QUEUES.get(task_name, QUEUE_INTERACTIVE))

@@ -80,6 +80,16 @@ def object_store(tmp_path):
     return LocalObjectStore(tmp_path / "objects")
 
 
+@pytest.fixture(autouse=True)
+def no_leftover_jobs_in_flight():
+    """Phase 15 admission limits are global. Jobs a previous test queued and never ran (the in-process tests drain
+    only what they need) would count as in flight and could hold back this test's jobs, so every test starts with
+    none. Production has no such leftovers: admitted jobs are run by workers or re-sent by the sweeper."""
+    with get_engine().begin() as c:
+        c.execute(text("UPDATE jobs SET status = 'cancelled' WHERE status IN ('queued', 'running')"))
+    yield
+
+
 @pytest.fixture
 def app(dispatcher, object_store):
     application = create_app()

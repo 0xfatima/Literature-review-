@@ -48,6 +48,7 @@ def _issued_year(raw: dict[str, Any]) -> int | None:
 
 
 class CrossrefSource:
+    endpoint: str = ENDPOINT  # Phase 15: overridable via SCHOLARLY_ENDPOINTS (registry)
     key = "crossref"
     label = "Crossref"
     tier = "additional"
@@ -86,7 +87,7 @@ class CrossrefSource:
         params = {"query": text, "select": SELECT}
         if parts:
             params["filter"] = ",".join(parts)
-        return ProviderQuery(self.key, ENDPOINT, text, params, applied, limitations)
+        return ProviderQuery(self.key, self.endpoint, text, params, applied, limitations)
 
     def fetch_page(self, http: HttpFetcher, query: ProviderQuery, cursor: str | None, page_size: int) -> Page:
         params: dict[str, Any] = {**query.params, "rows": min(page_size, self.max_page_size), "cursor": cursor or "*"}

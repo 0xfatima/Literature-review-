@@ -70,6 +70,8 @@ export interface Job {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  /** Queued but held back by the fair-share limit; starts automatically when capacity frees up. */
+  waiting_for_capacity?: boolean;
 }
 export interface JobList {
   items: Job[];

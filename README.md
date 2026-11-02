@@ -3,7 +3,7 @@
 Human-in-the-loop systematic-review workbench (protocol → search → screening → PDFs → evidence extraction → synthesis → draft) with provenance and an audit trail.
 Source of truth: `docs/requirements/`. Architecture: `docs/architecture/ADR-0001-initial-architecture.md` (Accepted, with amendments A1–A8).
 
-**Status: Phase 14 (auditability, privacy and security hardening) complete pending CI.** Phases 0–13 provide the full review workflow; Phase 14 adds a read-only Audit log (API, CSV export, workspace tab), system-process attribution of audit events, prompt-injection fencing of all third-party text sent to AI models, API security headers, request-body and per-session write limits, session retention, checkpoint deletion with projects, a dependency-vulnerability CI gate, and backup/restore scripts. See `docs/implementation-reports/phase-14.md`, `docs/architecture/security.md` and `docs/runbooks/data-retention-and-recovery.md`.
+**Status: Phase 15 (performance, concurrency and deployment) complete pending CI.** Fair job admission across users, cross-process limits that protect AI and scholarly provider quotas, Prometheus metrics, measured performance (`docs/performance.md`), a production Compose stack with TLS and Docker secrets, and a documented deploy with smoke test and backup/restore drill (`docs/runbooks/deployment.md`). Earlier phases: see `docs/implementation-reports/`.
 The research assistant is **not connected yet**: chat stores your messages and says so; it never invents replies. Exact test results: `docs/implementation-reports/phase-2.md`.
 
 ## Quick start (Docker Compose)
@@ -54,6 +54,9 @@ Lockfiles are committed (`requirements.lock.txt`, `apps/web/package-lock.json`).
 | `scripts/test-e2e.sh` | Playwright browser tests against the compose stack | Docker, Node, Chromium download |
 
 Integration tests **skip** (visibly) without `TEST_DATABASE_URL`; a skip is not a pass. CI (`.github/workflows/ci.yml`) runs all of the above on every pull request.
+
+## Production deployment
+See `docs/runbooks/deployment.md` (`scripts/gen-secrets.sh`, `scripts/deploy.sh`, `scripts/smoke.py`). Load testing: `scripts/loadtest/`, results in `docs/performance.md`.
 
 ## Backups and restore
 `scripts/backup.sh [OUT_DIR]` (database + uploaded files + checksummed manifest) and `scripts/restore.sh BACKUP_DIR --yes`

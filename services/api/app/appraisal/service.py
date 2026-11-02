@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.appraisal import ai
 from app.appraisal import frameworks as fwm
+from app.core import shutdown
 from app.core.config import Settings
 from app.core.errors import Conflict, NotFound, RateLimited, ValidationFailed
 from app.core.rate_limit import RateLimiter
@@ -535,7 +536,7 @@ def execute_suggestions(db: Session, job: Job, settings: Settings, *, gateway: L
         if job.cancel_requested:
             stop = "cancelled"
             break
-        if time.monotonic() > deadline:
+        if shutdown.past(deadline):
             stop = "time_budget"
             break
         fw = fwm.get(key)

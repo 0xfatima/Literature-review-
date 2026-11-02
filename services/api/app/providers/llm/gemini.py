@@ -21,7 +21,7 @@ from typing import Any
 import httpx
 
 from app.providers.llm.base import LLMError, LLMResult
-from app.providers.scholarly.throttle import Throttle
+from app.providers.scholarly.throttle import Throttle, penalize
 
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 RETRYABLE = frozenset({429, 500, 502, 503, 504})
@@ -117,6 +117,10 @@ class GeminiProvider:
                     status=resp.status_code,
                 )
                 hint = _retry_delay(resp)
+                if resp.status_code == 429:  # Phase 15: share the back-off with every worker
+                    penalize(
+                        self._throttle, f"llm:{self.name}:{self.model}", hint if hint is not None else 2.0**attempt
+                    )
             if attempt <= self._retries:
                 base = 2.0 ** (attempt - 1) + random.uniform(0, 1)  # noqa: S311
                 self._sleep(float(min(hint if hint is not None else base, self._max_backoff)))

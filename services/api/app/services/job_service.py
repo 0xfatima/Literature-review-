@@ -110,19 +110,43 @@ def enqueue(
         after={"type": job_type, "rerun": rerun_of is not None},
     )
     db.commit()
-    _dispatch(db, dispatch, job)
+    # Admission happens AFTER commit. Under load (or with the broker down) the job simply waits in the database as
+    # 'queued' and the pump admits it later (after any job finishes, and every JOB_PUMP_INTERVAL_S).
+    try:
+        pump(db, settings, dispatch, wait_for_lock=False)
+    except Exception:  # noqa: BLE001 - the job is committed; the periodic pump admits it
+        log.warning("admission pump failed after enqueue; the periodic pump will admit the job", exc_info=True)
+    db.refresh(job)
     return job, True
 
 
-def _dispatch(db: Session, dispatch: Dispatcher, job: Job) -> None:
-    """Send AFTER commit. If the broker is down the job stays 'queued' and the sweeper re-sends it."""
+def pump(db: Session, settings: Settings, dispatch: Dispatcher, *, wait_for_lock: bool = True) -> int:
+    """Phase 15 fair admission: hand waiting jobs to the broker within JOB_MAX_INFLIGHT_PER_USER and
+    JOB_MAX_INFLIGHT_GLOBAL, round-robin across users. Postgres stays the source of truth, so nothing is lost when
+    work is held back. Serialised by an advisory lock; returns how many jobs were admitted."""
+    admitted = 0
     try:
-        dispatch(TASK_FOR_TYPE[job.type], str(job.id))
-        job.enqueued_at = _now()
-        db.commit()
-    except Exception:  # noqa: BLE001
+        if not repo.lock_pump(db, wait=wait_for_lock):
+            db.rollback()  # another pump is admitting right now and will (or the next tick will) see this job
+            return 0
+        for job_id, job_type in repo.admission_candidates(
+            db,
+            per_user=max(1, settings.job_max_inflight_per_user),
+            global_cap=max(1, settings.job_max_inflight_global),
+            fair_window_s=settings.job_fair_share_window_s,
+        ):
+            try:
+                dispatch(TASK_FOR_TYPE[job_type], str(job_id))
+            except Exception:  # noqa: BLE001 - broker down: leave the rest waiting, retry on the next pump
+                log.warning("job dispatch failed; it stays queued and is retried", extra={"job_id": str(job_id)})
+                break
+            if repo.mark_enqueued(db, job_id, _now()):
+                admitted += 1
+        db.commit()  # releases the advisory lock
+    except Exception:
         db.rollback()
-        log.warning("job dispatch failed; will be re-sent by sweeper", extra={"job_id": str(job.id)})
+        raise
+    return admitted
 
 
 def list_(db: Session, user: User, *, project_id: uuid.UUID | None, active_only: bool, limit: int) -> list[Job]:
@@ -230,6 +254,7 @@ def sweep(db: Session, settings: Settings, dispatch: Dispatcher, now: datetime |
             after={"attempts": job.attempts},
         )
     db.commit()
+    redispatched += pump(db, settings, dispatch)  # never-admitted jobs (incl. ones whose dispatch failed)
     for job in repo.queued_needing_dispatch(db, now - policy.requeue_queued_after):
         try:
             dispatch(TASK_FOR_TYPE[job.type], str(job.id))

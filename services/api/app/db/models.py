@@ -179,6 +179,8 @@ class Job(Base):
         ),
         Index("ix_jobs_status_heartbeat", "status", "heartbeat_at"),
         Index("ix_jobs_owner_created", "owner_id", "created_at"),
+        # Phase 15: metrics window over finished jobs
+        Index("ix_jobs_finished_at", "finished_at", postgresql_where=text("finished_at IS NOT NULL")),
     )
 
 
@@ -721,6 +723,8 @@ class ModelRun(Base):
         CheckConstraint("status in " + _in(MODEL_RUN_STATUSES), name="status"),
         CheckConstraint("data_class in ('public_metadata','private_document')", name="data_class"),
         Index("ix_model_runs_project_created", "project_id", "created_at"),
+        # Phase 15: deployment-wide 24 h token budget (index-only scan)
+        Index("ix_model_runs_created_tokens", "created_at", postgresql_include=["input_tokens", "output_tokens"]),
     )
 
 

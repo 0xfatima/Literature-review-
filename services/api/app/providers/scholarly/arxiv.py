@@ -92,6 +92,7 @@ def entry_to_dict(e: ET.Element) -> dict[str, Any]:
 
 
 class ArxivSource:
+    endpoint: str = ENDPOINT  # Phase 15: overridable via SCHOLARLY_ENDPOINTS (registry)
     key = "arxiv"
     label = "arXiv"
     tier = "open_access"
@@ -117,7 +118,7 @@ class ArxivSource:
             limitations.append("arXiv has no language filter; the protocol's languages were not applied here.")
         limitations.append("arXiv records are preprints; posting on arXiv does not imply peer review.")
         params = {"search_query": text, "sortBy": "relevance", "sortOrder": "descending"}
-        return ProviderQuery(self.key, ENDPOINT, text, params, applied, limitations)
+        return ProviderQuery(self.key, self.endpoint, text, params, applied, limitations)
 
     def fetch_page(self, http: HttpFetcher, query: ProviderQuery, cursor: str | None, page_size: int) -> Page:
         start = int(cursor or 0)

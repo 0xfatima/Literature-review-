@@ -27,6 +27,7 @@ import httpx
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core import shutdown
 from app.core.config import Settings
 from app.db.models import Job, PaperRecord, PaperSourceRecord, Project, SearchQuery, SearchRun
 from app.jobs import fsm
@@ -128,7 +129,7 @@ def _new_paper(project_id: uuid.UUID, rec: ScholarlyRecord, run_id: uuid.UUID) -
         access_status=rec.access_status,
         field_sources=fields,
         providers=[rec.provider],
-        source_count=0,
+        source_count=1,  # created for its first source record (Phase 15: avoids an UPDATE per new paper)
         first_seen_run_id=run_id,
     )
 
@@ -234,13 +235,22 @@ def _ingest_page(
 ) -> int:
     added = 0
     base_rank = query.records_retrieved + query.records_skipped
-    for i, raw in enumerate(records, start=1):
+    ids: list[str | None] = []
+    for raw in records:
         try:
-            rid = source.record_id(raw)
-        except RecordError as e:
-            _skip(query, None, str(e))
+            ids.append(source.record_id(raw))
+        except RecordError:
+            ids.append(None)
+    # Phase 15: one query per page instead of one per record (a resumed page skips what it already stored)
+    stored = repo.stored_source_ids(db, query.id, [r[:255] for r in ids if r])
+    for i, (raw, rid) in enumerate(zip(records, ids, strict=True), start=1):
+        if rid is None:
+            try:
+                source.record_id(raw)
+            except RecordError as e:
+                _skip(query, None, str(e))
             continue
-        if repo.source_exists(db, query.id, rid):
+        if rid[:255] in stored:
             continue  # this page was already stored before a crash/redelivery
         try:
             rec = source.normalize(raw)
@@ -263,7 +273,9 @@ def _ingest_page(
                 match_basis=basis,
             )
         )
-        paper.source_count += 1
+        if basis != "new":  # a new paper was created with its first source already counted
+            paper.source_count += 1
+        stored.add(rid[:255])  # a provider repeating a record within one page is stored once, as before
         db.flush()
         added += 1
     return added
@@ -290,7 +302,7 @@ def _run_query(
         db.refresh(job)
         if job.cancel_requested:
             raise _Stop("cancelled")
-        if time.monotonic() > deadline:
+        if shutdown.past(deadline):
             raise _Stop("time_budget")
         remaining = cap - query.records_retrieved
         if remaining <= 0:

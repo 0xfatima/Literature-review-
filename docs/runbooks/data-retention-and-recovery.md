@@ -25,7 +25,7 @@ so the history of what happened survives without the research content.
 
 ## Backups
 `scripts/backup.sh [OUT_DIR]` writes `db.dump` (pg_dump custom format), `storage.tar.gz` (the upload volume) and a
-`manifest.txt` with checksums, the git commit and the Alembic head. Run it from cron at least daily; copy the
+`manifest.txt` with checksums, the git commit and the Alembic head. Run it from cron at least daily (production: `COMPOSE="docker compose --env-file .env.production -f docker-compose.prod.yml" scripts/backup.sh /srv/backups`, see `deployment.md`); copy the
 directory off-host, encrypted. The database is dumped first: a file stored between the two steps has no row and is
 removed by the orphan sweep after a restore; a row whose file is missing shows an error in the Files tab rather than
 pretending the document is available.
