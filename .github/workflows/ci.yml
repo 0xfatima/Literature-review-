@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: OCR engine for the PDF tests
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: "3.12", cache: pip, cache-dependency-path: requirements.lock.txt }
       - name: Lockfile must exist (dependencies are pinned, never floating)
         run: test -f requirements.lock.txt
@@ -183,7 +183,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
       - name: Python dependencies (requirements.lock.txt) have no known vulnerabilities
         run: |
