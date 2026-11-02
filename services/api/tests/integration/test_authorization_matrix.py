@@ -70,7 +70,13 @@ def world(user_client, dispatcher):
     assert a.post(f"/api/v1/projects/{p1}/extraction/schemas/{schema}/approve", json={}).status_code == 200
     synthesis = a.post(f"/api/v1/projects/{p1}/synthesis/versions", json={}).json()["id"]
     draft = a.post(f"/api/v1/projects/{p1}/reports", json={}).json()["id"]
+    reports = [p["id"] for p in a.get(f"/api/v1/projects/{p1}/papers").json()["items"][:2]]
+    for r in reports:
+        a.post(f"/api/v1/projects/{p1}/screening/papers/{r}/decision", json={"decision": "include"})
+        a.post(f"/api/v1/projects/{p1}/prisma/ft-decisions/{r}", json={"decision": "include"})
+    study = a.post(f"/api/v1/projects/{p1}/studies", json={"paper_ids": reports, "short_name": "S"}).json()["id"]
     ids = {
+        "study_id": study,
         "draft_id": draft,
         "synthesis_id": synthesis,
         "document_id": document,
@@ -138,7 +144,7 @@ def test_conversation_is_not_reachable_through_another_project_of_the_same_owner
         object_ids += ("document_id",) if method in ("GET", "DELETE") else ()
         object_ids += ("schema_id",) if method in ("GET", "POST", "PATCH", "PUT") else ()
         object_ids += ("field_key",) if method == "PUT" else ()
-        object_ids += ("synthesis_id", "draft_id")
+        object_ids += ("synthesis_id", "draft_id", "study_id")
         if any(f"{{{k}}}" in path for k in object_ids):
             r = call(a, method, fill(path, {**ids, "project_id": p2}))
             assert r.status_code == 404, f"{method} {path} via other project -> {r.status_code}"

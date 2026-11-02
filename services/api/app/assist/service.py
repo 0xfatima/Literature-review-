@@ -445,13 +445,13 @@ def workspace_overview(db: Session, project: Project) -> dict[str, Any]:
     sought = int(flow["sought_retrieval"])
     pending_ft = int(flow["pending_retrieval"]) + int(flow["pending_ft"])
     if not sought:
-        stages.append(_stage("full_text", "Full text", "files", "not_started", "No full texts sought yet"))
+        stages.append(_stage("full_text", "Full text", "fulltext", "not_started", "No full texts sought yet"))
     else:
         stages.append(
             _stage(
                 "full_text",
                 "Full text",
-                "files",
+                "fulltext",
                 "in_progress" if pending_ft else "done",
                 f"{flow['ft_assessed']} assessed · {pending_ft} pending · {flow['included_studies']} included",
             )

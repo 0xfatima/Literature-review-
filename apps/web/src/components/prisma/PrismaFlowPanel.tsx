@@ -42,7 +42,13 @@ function PendingNote({ count, label }: { count: number; label: string }) {
   );
 }
 
-export default function PrismaFlowPanel({ projectId }: { projectId: string }) {
+export default function PrismaFlowPanel({
+  projectId,
+  onOpenFullText,
+}: {
+  projectId: string;
+  onOpenFullText?: () => void;
+}) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["prisma", projectId, "flow"],
     queryFn: () => apiFetch<PrismaFlow>(`/projects/${projectId}/prisma/flow`),
@@ -125,6 +131,11 @@ export default function PrismaFlowPanel({ projectId }: { projectId: string }) {
         ))}
         <PendingNote count={f.pending_retrieval} label="still pending full-text retrieval" />
         <PendingNote count={f.pending_ft} label="still pending full-text assessment" />
+        {onOpenFullText && f.sought_retrieval > 0 && (
+          <button type="button" className="btn-secondary mt-2 self-start" onClick={onOpenFullText}>
+            Open full-text screening
+          </button>
+        )}
       </section>
 
       <section className="rounded border border-line bg-panel p-4" aria-labelledby="flow-included">
@@ -136,14 +147,14 @@ export default function PrismaFlowPanel({ projectId }: { projectId: string }) {
         {f.included_reports > f.included_studies && (
           <p className="mt-1 text-xs text-muted">
             {f.included_reports - f.included_studies} report
-            {f.included_reports - f.included_studies === 1 ? "" : "s"} have been grouped into studies in the
-            Studies tab.
+            {f.included_reports - f.included_studies === 1 ? "" : "s"} have been grouped into studies (Full
+            text tab, &ldquo;Studies and reports&rdquo;).
           </p>
         )}
         {f.included_reports > 0 && f.included_reports === f.included_studies && (
           <p className="mt-1 text-xs text-muted">
-            One report per study (the default assumption). Use the Studies tab to group multiple reports of
-            the same study.
+            One report per study (the default assumption). Group several reports of the same study under
+            &ldquo;Studies and reports&rdquo; in the Full text tab.
           </p>
         )}
       </section>

@@ -10,6 +10,7 @@ import SearchPanel from "@/components/search/SearchPanel";
 import PapersPanel from "@/components/papers/PapersPanel";
 import DocumentsPanel from "@/components/documents/DocumentsPanel";
 import PrismaFlowPanel from "@/components/prisma/PrismaFlowPanel";
+import FullTextPanel from "@/components/fulltext/FullTextPanel";
 import AppraisalPanel from "@/components/appraisal/AppraisalPanel";
 import EvidenceTablePanel from "@/components/extraction/EvidenceTablePanel";
 import ExtractionPanel from "@/components/extraction/ExtractionPanel";
@@ -123,6 +124,7 @@ export const TABS = [
   { id: "screening", label: "Screening" },
   { id: "papers", label: "Papers" },
   { id: "files", label: "Files" },
+  { id: "fulltext", label: "Full text" },
   { id: "flow", label: "PRISMA Flow" },
   { id: "extraction", label: "Extraction" },
   { id: "tables", label: "Tables" },
@@ -355,7 +357,16 @@ export default function Workspace({
           )}
           {panel("papers", <PapersPanel projectId={project.id} onOpenSearch={() => onTab("search")} />)}
           {panel("files", <DocumentsPanel projectId={project.id} canWrite={project.archived_at === null} />)}
-          {panel("flow", <PrismaFlowPanel projectId={project.id} />)}
+          {panel(
+            "fulltext",
+            <FullTextPanel
+              projectId={project.id}
+              canWrite={project.archived_at === null}
+              onOpenScreening={() => onTab("screening")}
+              onOpenFiles={() => onTab("files")}
+            />,
+          )}
+          {panel("flow", <PrismaFlowPanel projectId={project.id} onOpenFullText={() => onTab("fulltext")} />)}
           {panel(
             "extraction",
             <ExtractionPanel projectId={project.id} canWrite={project.archived_at === null} />,

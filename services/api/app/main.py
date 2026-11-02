@@ -89,7 +89,17 @@ def create_app() -> FastAPI:
             s = _effective_settings()
             response: Response
             blocked = _guard(request, s) or await _write_limit(request, s)
-            response = blocked if blocked is not None else await call_next(request)
+            if blocked is not None:
+                response = blocked
+            else:
+                try:
+                    response = await call_next(request)
+                except Exception:  # noqa: BLE001  turned into the standard envelope while the request context is live
+                    # Starlette's catch-all handler runs outside this middleware, after the correlation id has been
+                    # reset, so a crash there returned `correlation_id: null`, no X-Correlation-ID and no security
+                    # headers, and was never logged as a request. Handle it here instead.
+                    log.exception("unhandled error")  # stack goes to (redacted) logs, never to the client
+                    response = JSONResponse(error_body("internal_error", "Something went wrong."), status_code=500)
             for name, value in security_headers(
                 path=request.url.path, hsts_max_age_s=s.hsts_max_age_s if s.cookie_secure else None
             ).items():

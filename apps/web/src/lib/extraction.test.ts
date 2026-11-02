@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { cellText, formatValue, highlight, parseInput } from "@/lib/extraction";
-import type { EvidenceItem } from "@/lib/types";
+import { cellText, formatValue, highlight, parseInput, questionCoverage } from "@/lib/extraction";
+import type { EvidenceItem, FieldCoverage } from "@/lib/types";
 
 const base: EvidenceItem = {
   id: "e1",
@@ -60,5 +60,36 @@ describe("evidence table helpers", () => {
     expect(parseInput(choice, "RCT")).toEqual({ value: "RCT" });
     expect(parseInput(choice, "Cohort")).toHaveProperty("error");
     expect(parseInput({ field_key: "b", label: "B", type: "boolean" }, "no")).toEqual({ value: false });
+  });
+});
+
+describe("questionCoverage", () => {
+  const f = (o: Partial<FieldCoverage>): FieldCoverage => ({
+    field_key: "k",
+    label: "K",
+    included_papers: 2,
+    found: 0,
+    not_located: 0,
+    unavailable: 0,
+    ambiguous: 0,
+    pending: 0,
+    ...o,
+  });
+  it("needs mapped fields and included papers", () => {
+    expect(questionCoverage([], 3)).toBe("no_fields");
+    expect(questionCoverage([f({ found: 1 })], 0)).toBe("not_assessed");
+  });
+  it("answered only when every value was found", () => {
+    expect(questionCoverage([f({ found: 2 }), f({ found: 2 })], 2)).toBe("answered");
+    expect(questionCoverage([f({ found: 2 }), f({ found: 1, not_located: 1 })], 2)).toBe("partial");
+    expect(questionCoverage([f({ found: 1, pending: 1 })], 2)).toBe("partial");
+  });
+  it("never confuses missing full text with absent information", () => {
+    expect(questionCoverage([f({ unavailable: 2 })], 2)).toBe("no_full_text");
+    expect(questionCoverage([f({ not_located: 1, unavailable: 1 })], 2)).toBe("not_found");
+  });
+  it("is not assessed while nothing has been extracted", () => {
+    expect(questionCoverage([f({ pending: 2 })], 2)).toBe("not_assessed");
+    expect(questionCoverage([f({ pending: 1, not_located: 1 })], 2)).toBe("not_assessed");
   });
 });

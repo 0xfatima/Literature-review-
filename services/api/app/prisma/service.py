@@ -418,6 +418,20 @@ def group_into_study(
     ).all()
     if len(papers) != len(paper_ids):
         raise NotFound("One or more papers not found.")
+    current = _current_stage_by_paper(db, project_id)
+    not_included = [str(p.id) for p in papers if (ev := current.get(p.id)) is None or ev.stage != "included"]
+    if not_included:
+        raise ValidationFailed(
+            "Only reports included at full text can be grouped into a study.",
+            details=[{"field": "paper_ids", "issue": "not_included", "paper_ids": not_included}],
+        )
+    already = [str(p.id) for p in papers if p.study_id is not None]
+    if already:
+        raise Conflict(
+            "A report is already part of a study. Remove that grouping first.",
+            code="already_grouped",
+            details=[{"paper_ids": already}],
+        )
 
     study = Study(id=uuid.uuid4(), project_id=project_id, short_name=short_name, notes=notes)
     db.add(study)
@@ -436,3 +450,211 @@ def group_into_study(
     db.commit()
     db.refresh(study)
     return study
+
+
+def ungroup_study(db: Session, project_id: uuid.UUID, study_id: uuid.UUID, *, user_id: uuid.UUID) -> None:
+    """Dissolve a study grouping: its reports count as separate studies again. Nothing else changes."""
+    study = db.scalar(select(Study).where(Study.id == study_id, Study.project_id == project_id))
+    if study is None:
+        raise NotFound("Study not found.")
+    papers = db.scalars(
+        select(PaperRecord).where(PaperRecord.project_id == project_id, PaperRecord.study_id == study_id)
+    ).all()
+    for p in papers:
+        p.study_id = None
+    db.flush()
+    db.delete(study)
+    audit_service.record(
+        db,
+        action="study.ungrouped",
+        entity_type="study",
+        entity_id=study_id,
+        actor_id=user_id,
+        project_id=project_id,
+        after={"paper_count": len(papers)},
+    )
+    db.commit()
+
+
+def list_studies(db: Session, project_id: uuid.UUID) -> dict[str, Any]:
+    """Included reports and how they are grouped into studies. A report outside any group counts as its own
+    study (the 1:1 assumption), which the response says explicitly."""
+    current = _current_stage_by_paper(db, project_id)
+    included_ids = [pid for pid, ev in current.items() if ev.stage == "included"]
+    papers = db.scalars(select(PaperRecord).where(PaperRecord.id.in_(included_ids))).all() if included_ids else []
+    studies = db.scalars(select(Study).where(Study.project_id == project_id).order_by(Study.created_at)).all()
+    by_study: dict[uuid.UUID, list[dict[str, Any]]] = {s.id: [] for s in studies}
+    ungrouped: list[dict[str, Any]] = []
+    for p in sorted(papers, key=lambda x: (x.year or 0, x.title)):
+        brief = _paper_brief(p)
+        if p.study_id is not None and p.study_id in by_study:
+            by_study[p.study_id].append(brief)
+        else:
+            ungrouped.append(brief)
+    return {
+        "studies": [
+            {"id": str(s.id), "short_name": s.short_name, "notes": s.notes, "reports": by_study[s.id]} for s in studies
+        ],
+        "ungrouped_reports": ungrouped,
+        "included_reports": len(papers),
+        "included_studies": len([s for s in studies if by_study[s.id]]) + len(ungrouped),
+    }
+
+
+# ---------- full-text queue and retrieval ----------
+
+FT_QUEUE_STATUSES = ("awaiting", "uncertain", "included", "excluded", "not_retrieved")
+
+
+def _current_stage_by_paper(db: Session, project_id: uuid.UUID) -> dict[uuid.UUID, RecordStatusEvent]:
+    """The current (not superseded) record_status_event of every paper in the project."""
+    superseded = (
+        select(RecordStatusEvent.supersedes_id)
+        .where(RecordStatusEvent.project_id == project_id, RecordStatusEvent.supersedes_id.is_not(None))
+        .scalar_subquery()
+    )
+    rows = db.scalars(
+        select(RecordStatusEvent)
+        .where(RecordStatusEvent.project_id == project_id, RecordStatusEvent.id.not_in(superseded))
+        .order_by(RecordStatusEvent.created_at.asc())
+    ).all()
+    out: dict[uuid.UUID, RecordStatusEvent] = {}
+    for ev in rows:  # later rows win: the last current event is where the paper is now
+        out[ev.paper_id] = ev
+    return out
+
+
+def _paper_brief(p: PaperRecord) -> dict[str, Any]:
+    first = (p.authors or [{}])[0] if p.authors else {}
+    return {
+        "id": str(p.id),
+        "title": p.title,
+        "year": p.year,
+        "venue": p.venue,
+        "doi": p.doi,
+        "first_author": (first or {}).get("name") or (first or {}).get("family"),
+        "author_count": len(p.authors or []),
+        "full_text_status": p.full_text_status,
+        "study_id": str(p.study_id) if p.study_id else None,
+    }
+
+
+def ft_queue(db: Session, project_id: uuid.UUID, *, status: str | None = None) -> dict[str, Any]:
+    """Records that passed title/abstract screening, with their full-text status. Derived from stored events and
+    decisions only. Status: awaiting (no full-text outcome yet), uncertain, included, excluded, not_retrieved."""
+    if status is not None and status not in FT_QUEUE_STATUSES:
+        raise ValidationFailed("Unknown status filter.", details=[{"field": "status", "issue": "invalid"}])
+    stage_to_status = {
+        "ta_included": "awaiting",
+        "not_retrieved": "not_retrieved",
+        "included": "included",
+        "ft_excluded": "excluded",
+    }
+    current = {pid: ev for pid, ev in _current_stage_by_paper(db, project_id).items() if ev.stage in stage_to_status}
+    if not current:
+        return {"items": [], "counts": dict.fromkeys(FT_QUEUE_STATUSES, 0)}
+    papers = {p.id: p for p in db.scalars(select(PaperRecord).where(PaperRecord.id.in_(list(current)))).all()}
+    states = {
+        s.paper_id: s
+        for s in db.scalars(
+            select(ScreeningState).where(
+                ScreeningState.project_id == project_id,
+                ScreeningState.stage == FT_STAGE,
+                ScreeningState.paper_id.in_(list(current)),
+            )
+        ).all()
+    }
+    decisions = (
+        {
+            d.id: d
+            for d in db.scalars(
+                select(ScreeningDecision).where(ScreeningDecision.id.in_([s.decision_id for s in states.values()]))
+            ).all()
+        }
+        if states
+        else {}
+    )
+    items: list[dict[str, Any]] = []
+    counts = dict.fromkeys(FT_QUEUE_STATUSES, 0)
+    for pid, ev in current.items():
+        p = papers.get(pid)
+        if p is None:
+            continue
+        st = states.get(pid)
+        s = stage_to_status[ev.stage]
+        if s == "awaiting" and st is not None and st.decision == "uncertain":
+            s = "uncertain"
+        counts[s] += 1
+        if status is not None and s != status:
+            continue
+        dec = decisions.get(st.decision_id) if st else None
+        items.append(
+            {
+                **_paper_brief(p),
+                "status": s,
+                "reason_code": ev.reason_code if ev.stage in ("ft_excluded", "not_retrieved") else None,
+                "reason_label": ev.reason_label if ev.stage in ("ft_excluded", "not_retrieved") else None,
+                "note": (dec.note if dec else None) if ev.stage != "not_retrieved" else ev.note,
+                "row_version": st.row_version if st else None,
+                "decided_at": ev.created_at.isoformat() if s not in ("awaiting", "uncertain") else None,
+            }
+        )
+    order = {k: i for i, k in enumerate(("awaiting", "uncertain", "not_retrieved", "excluded", "included"))}
+    items.sort(key=lambda i: (order[i["status"]], -(i["year"] or 0), i["title"]))
+    return {"items": items, "counts": counts}
+
+
+def mark_retrieval(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    paper_id: uuid.UUID,
+    user_id: uuid.UUID,
+    retrieved: bool,
+    note: str | None,
+) -> dict[str, Any]:
+    """Record that a report sought for retrieval could not be obtained (PRISMA 'reports not retrieved'), or undo
+    that. Both are new events that supersede the current one; nothing is deleted."""
+    pv = _approved(db, project_id)
+    if pv is None:
+        raise Conflict("Approve the protocol before screening.", code="protocol_not_approved")
+    paper = db.scalar(select(PaperRecord).where(PaperRecord.id == paper_id, PaperRecord.project_id == project_id))
+    if paper is None:
+        raise NotFound("Paper not found.")
+    cur = _current_stage_by_paper(db, project_id).get(paper_id)
+    if cur is None or cur.stage not in ("ta_included", "not_retrieved"):
+        raise Conflict(
+            "Only records that passed title/abstract screening and have no full-text decision can be marked.",
+            code="not_awaiting_full_text",
+        )
+    if not retrieved and cur.stage == "not_retrieved":
+        raise Conflict("This record is already marked as not retrieved.", code="already_not_retrieved")
+    if retrieved and cur.stage == "ta_included":
+        raise Conflict("This record is not marked as not retrieved.", code="not_marked")
+    note = (note or "").strip() or None
+    if note is not None and len(note) > 2000:
+        raise ValidationFailed("The note is too long (2,000 characters at most).")
+    emit_event(
+        db,
+        project_id=project_id,
+        paper_id=paper_id,
+        protocol_version_id=pv.id,
+        pathway=cur.pathway,
+        stage="ta_included" if retrieved else "not_retrieved",
+        actor_id=user_id,
+        reason_code=None if retrieved else "not_retrieved",
+        reason_label=None if retrieved else "Full text could not be obtained",
+        note=None if retrieved else note,
+        supersedes_id=cur.id,
+    )
+    audit_service.record(
+        db,
+        action="full_text.retrieval_restored" if retrieved else "full_text.not_retrieved",
+        entity_type="paper",
+        entity_id=paper_id,
+        actor_id=user_id,
+        project_id=project_id,
+        after={"note": note is not None},
+    )
+    db.commit()
+    return {"paper_id": str(paper_id), "status": "awaiting" if retrieved else "not_retrieved"}
