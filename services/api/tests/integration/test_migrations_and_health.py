@@ -50,7 +50,20 @@ def tables():
     return set(inspect(get_engine()).get_table_names()) - {"alembic_version"}
 
 
-def test_upgrade_downgrade_upgrade_roundtrip():
+def test_upgrade_downgrade_upgrade_roundtrip(user_client, dispatcher):
+    """Round-trips a database that HOLDS DATA from every stage, including full-text decisions. Before, this test
+    only passed when it happened to run before any test that recorded a full-text decision: 0007's downgrade could not
+    re-add its title/abstract-only checks over full-text rows."""
+    from tests.integration.test_prisma_extraction import ft_decide, searched, ta_decide
+
+    c, _, _ = user_client()
+    pid, _ = searched(c, dispatcher)
+    paper = c.get(f"/api/v1/projects/{pid}/papers?limit=1").json()["items"][0]["id"]
+    ta_decide(c, pid, paper, "include")
+    ft_decide(c, pid, paper, "exclude", reason_code="wrong_study_design")
+    with get_engine().connect() as conn:
+        assert conn.scalar(text("SELECT count(*) FROM screening_decisions WHERE stage = 'full_text'")) >= 1
+
     assert EXPECTED <= tables()
     command.downgrade(alembic_cfg(), "base")
     assert tables() == set()

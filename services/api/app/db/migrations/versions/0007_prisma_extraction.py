@@ -253,6 +253,14 @@ def downgrade() -> None:
     op.drop_column("paper_records", "study_id")
     op.drop_table("studies")
     op.execute("ALTER TABLE screening_decisions DROP CONSTRAINT ck_screening_decisions_ft_reason")
+    # Full-text screening did not exist before this revision, so its rows cannot be represented below it; without
+    # this, re-adding the 'title_abstract'-only checks fails on any database that has a full-text decision.
+    # DESTRUCTIVE (as is dropping this revision's tables above): back up before downgrading past 0007.
+    # screening_decisions is append-only by trigger (0005), so the trigger is disabled for this one statement.
+    op.execute("DELETE FROM screening_states WHERE stage = 'full_text'")
+    op.execute("ALTER TABLE screening_decisions DISABLE TRIGGER screening_decisions_append_only")
+    op.execute("DELETE FROM screening_decisions WHERE stage = 'full_text'")
+    op.execute("ALTER TABLE screening_decisions ENABLE TRIGGER screening_decisions_append_only")
     op.execute("ALTER TABLE screening_decisions DROP CONSTRAINT ck_screening_decisions_stage")
     op.create_check_constraint("ck_screening_decisions_stage", "screening_decisions", "stage in ('title_abstract')")
     op.execute("ALTER TABLE screening_states DROP CONSTRAINT ck_screening_states_stage")

@@ -33,3 +33,13 @@ None. New routes only; no schema or setting changes.
 - Ungrouping deletes the `studies` row (audited as `study.ungrouped`); the grouping history is in the audit log only.
 - Renaming a field's key in the schema editor drops its question links (they are keyed by `field_key`).
 - "Answered" means evidence was located for every linked field in every included paper; it does not judge what the evidence concludes.
+
+## Follow-up: CI failure on PR #28 (migration round-trip)
+
+CI failed `test_upgrade_downgrade_upgrade_roundtrip` and, as a knock-on effect, `test_every_model_declared_index_exists_in_the_migrated_database` (the half-finished downgrade left the database without Phase 15's indexes).
+
+**Cause: a latent bug in migration 0007, exposed by test order.** 0007's downgrade re-adds a `stage in ('title_abstract')` check to `screening_decisions` and `screening_states`, which fails on any database holding a full-text decision. The round-trip test only ever passed because the files that create full-text decisions (`test_prisma_extraction.py`, …) sort *after* `test_migrations_and_health.py`; the new `test_fulltext_and_studies.py` sorts before it. Running the two files in that order reproduced CI's two failures exactly. A real rollback past 0007 on a database with full-text decisions would have failed the same way.
+
+**Fix.** 0007's downgrade now deletes the full-text rows that cannot exist below 0007 (trigger disabled for that one statement, since `screening_decisions` is append-only), then restores the checks. Destructive, like the rest of that downgrade; back up first. The round-trip test now creates a full-text decision itself before downgrading, so it no longer depends on test order.
+
+**Verified:** both tests fail on the old code and pass on the new code in CI's order; all 699 backend tests pass; `alembic upgrade head && downgrade base && upgrade head && check` passes on a clean database; mypy and ruff are clean.
