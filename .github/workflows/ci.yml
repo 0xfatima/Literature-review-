@@ -34,7 +34,7 @@ jobs:
       REDIS_URL: redis://localhost:6379/0
       REQUIRE_OCR_TESTS: "1"       # the real-Tesseract test must RUN in CI (it is skipped locally only if tesseract is absent)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: OCR engine for the PDF tests
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng
       - uses: actions/setup-python@v5
@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: apps/web } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - name: Lockfile must exist
@@ -92,7 +92,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest   # independent of backend/web so E2E results are never hidden by an earlier failure
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Lockfiles must exist (no floating dependencies in images)
         run: test -f requirements.lock.txt && test -f apps/web/package-lock.json
       - name: Start stack
@@ -135,7 +135,7 @@ jobs:
   docker-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Lockfiles must exist
         run: test -f requirements.lock.txt && test -f apps/web/package-lock.json
       - run: docker build -f infra/docker/api.Dockerfile -t srs-api .
@@ -147,7 +147,7 @@ jobs:
   deploy-verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Lockfiles must exist
         run: test -f requirements.lock.txt && test -f apps/web/package-lock.json
       - name: Shell scripts are executable in git (a lost +x bit fails with exit 126)
@@ -182,7 +182,7 @@ jobs:
   dependency-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Python dependencies (requirements.lock.txt) have no known vulnerabilities
