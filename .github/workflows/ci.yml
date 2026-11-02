@@ -63,7 +63,7 @@ jobs:
           print(f"tests={t} skipped={sk}")
           assert sk == 0 and t >= 510, "tests were skipped or too few executed"
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: backend-test-evidence
@@ -121,7 +121,7 @@ jobs:
         run: |
           sleep 65
           DRILL_LOGIN_LIMIT=100 python scripts/drills.py run all
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
