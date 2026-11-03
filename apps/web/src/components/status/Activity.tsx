@@ -19,7 +19,7 @@ import {
   viewLabel,
 } from "@/lib/steps";
 import type { Job, JobList, Project, WorkflowRun } from "@/lib/types";
-import { JOB_STATE_LABELS, jobState, newlyFinished } from "@/lib/workspace";
+import { JOB_STATE_LABELS, isActiveJob, jobState } from "@/lib/workspace";
 import { useStatus } from "./StatusContext";
 
 // Mirrors app/jobs/fsm.JOB_TYPES[...]["cancellable"]: the server refuses to cancel these.
@@ -99,28 +99,47 @@ export function ActivityProvider({
   });
 
   // Finished jobs: refresh every panel of the project (so chat and panels agree) and tell the person.
-  const previous = useRef<Job[] | null>(null);
+  // A job counts as watched once either poll has seen it running. When it leaves the active list, the recent
+  // list is fetched at once: it may otherwise be on its slow idle interval and announce the end late or never.
+  const watched = useRef(new Set<string>());
+  const announced = useRef(new Set<string>());
+  const refetchRecent = recentQ.refetch;
+  useEffect(() => {
+    const ids = new Set(active.map((j) => j.id));
+    for (const id of ids) watched.current.add(id);
+    const ended = [...watched.current].some((id) => !ids.has(id) && !announced.current.has(id));
+    if (ended) void refetchRecent();
+  }, [active, refetchRecent]);
   useEffect(() => {
     if (!recentQ.data) return;
-    const items = recentQ.data.items;
-    if (previous.current) {
-      const done = newlyFinished(previous.current, items);
-      if (done.length) {
-        qc.invalidateQueries({ predicate: (q) => q.queryKey[1] === pid && q.queryKey[0] !== "jobs" });
-        for (const j of done) {
-          const state = jobState(j);
-          const view = JOB_VIEW[j.type];
-          notify({
-            key: `job:${j.id}`,
-            tone: state === "failed" ? "error" : state === "completed" ? "success" : "info",
-            title: `${jobLabel(j.type)} ${JOB_STATE_LABELS[state].toLowerCase()}`,
-            body: j.error_summary ?? undefined,
-            action: view ? { label: `Open ${viewLabel(view)}`, run: () => openView(view) } : undefined,
-          });
-        }
+    const done: Job[] = [];
+    for (const j of recentQ.data.items) {
+      if (isActiveJob(j)) watched.current.add(j.id);
+      else if (watched.current.has(j.id) && !announced.current.has(j.id)) {
+        announced.current.add(j.id);
+        done.push(j);
       }
     }
-    previous.current = items;
+    // A watched job that ended but is no longer among the recent ones cannot be announced: stop watching it.
+    const listed = new Set(recentQ.data.items.map((j) => j.id));
+    const running = new Set(active.map((j) => j.id));
+    for (const id of watched.current)
+      if (!listed.has(id) && !running.has(id) && !announced.current.has(id)) announced.current.add(id);
+    if (!done.length) return;
+    qc.invalidateQueries({ predicate: (q) => q.queryKey[1] === pid && q.queryKey[0] !== "jobs" });
+    for (const j of done) {
+      const state = jobState(j);
+      const view = JOB_VIEW[j.type];
+      notify({
+        key: `job:${j.id}`,
+        tone: state === "failed" ? "error" : state === "completed" ? "success" : "info",
+        title: `${jobLabel(j.type)} ${JOB_STATE_LABELS[state].toLowerCase()}`,
+        body: j.error_summary ?? undefined,
+        action: view ? { label: `Open ${viewLabel(view)}`, run: () => openView(view) } : undefined,
+      });
+    }
+    // `active` is read for the clean-up only; re-running on every active poll is not needed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recentQ.data, qc, pid, notify, openView]);
 
   // The protocol workflow asks its questions in the chat. Say so whenever a new one is waiting, and when the

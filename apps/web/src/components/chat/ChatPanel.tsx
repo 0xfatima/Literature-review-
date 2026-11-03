@@ -371,19 +371,35 @@ export default function ChatPanel({
 
   if (!conversation) {
     return (
-      <div className={`${column} flex flex-1 flex-col items-start justify-center gap-3 p-6`}>
-        <h2 className="text-base font-semibold">Start a conversation</h2>
-        <p className="max-w-prose text-muted">
-          The chat is where this review is set up: the protocol questions are asked here one at a time.
-          Threads keep each conversation, and you can come back to them at any time.
-        </p>
-        <button type="button" className="btn" onClick={onNewThread} disabled={!canWrite || creating}>
-          Start a thread
-        </button>
-        {!canWrite && (
-          <p className="text-xs text-muted">This project is archived. Unarchive it to start a thread.</p>
+      <>
+        {onHide && (
+          // Same control as in a thread's header, so the chat can always step aside for an open step.
+          <div className="hidden h-10 shrink-0 items-center justify-end border-b border-line px-2 md:flex">
+            <button
+              type="button"
+              className="btn-icon"
+              aria-label="Hide chat"
+              title="Hide chat"
+              onClick={onHide}
+            >
+              <Icon name="arrowLeft" size={18} />
+            </button>
+          </div>
         )}
-      </div>
+        <div className={`${column} flex flex-1 flex-col items-start justify-center gap-3 p-6`}>
+          <h2 className="text-base font-semibold">Start a conversation</h2>
+          <p className="max-w-prose text-muted">
+            The chat is where this review is set up: the protocol questions are asked here one at a time.
+            Threads keep each conversation, and you can come back to them at any time.
+          </p>
+          <button type="button" className="btn" onClick={onNewThread} disabled={!canWrite || creating}>
+            Start a thread
+          </button>
+          {!canWrite && (
+            <p className="text-xs text-muted">This project is archived. Unarchive it to start a thread.</p>
+          )}
+        </div>
+      </>
     );
   }
 
