@@ -489,8 +489,8 @@ export default function EvidenceTablePanel({
       <div className="max-w-prose py-10">
         <h2 className="mb-2 text-base font-semibold">No evidence table yet</h2>
         <p className="text-muted">
-          Approve an extraction schema in the Extraction tab. The evidence table then lists every included
-          paper with one column per field, each value linked to its page and passage.
+          Approve an extraction schema in the Extraction form step. The evidence table then lists every
+          included paper with one column per field, each value linked to its page and passage.
         </p>
       </div>
     );

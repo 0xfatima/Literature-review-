@@ -5,7 +5,6 @@ const v = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
 
 const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
-  darkMode: "class",
   theme: {
     extend: {
       colors: {
@@ -19,9 +18,14 @@ const config: Config = {
         link: v("link"),
         danger: v("danger"),
         ok: v("ok"),
+        warn: v("warn"),
+        onmark: v("on-mark"),
       },
       fontFamily: {
+        // Inter / IBM Plex Sans are used when installed; the system UI font otherwise. No web fonts are fetched.
         sans: [
+          "Inter",
+          "IBM Plex Sans",
           "system-ui",
           "-apple-system",
           "Segoe UI",
@@ -31,7 +35,8 @@ const config: Config = {
           "Arial",
           "sans-serif",
         ],
-        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
+        serif: ["Source Serif 4", "Literata", "Charter", "Georgia", "Cambria", "serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
       },
       fontSize: { "2xs": ["0.6875rem", { lineHeight: "1rem" }] },
     },

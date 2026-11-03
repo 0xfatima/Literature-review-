@@ -47,7 +47,7 @@ function Pending({
     return (
       <p className="rounded border border-line p-3 text-sm" role="status">
         {p.type === "wait_job"
-          ? `${p.message} Progress is shown in the status bar; the run continues by itself when the job ends.`
+          ? `${p.message} Progress is shown at the top right; the run continues by itself when the job ends.`
           : `${p.message} Next attempt after ${p.until ? new Date(p.until).toLocaleTimeString() : "a short wait"}.`}
       </p>
     );

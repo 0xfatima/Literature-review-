@@ -1,100 +1,172 @@
 "use client";
-import type { ReactNode } from "react";
-import { CHAT, SIDEBAR } from "@/lib/layout";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Toaster } from "@/components/status/Notifications";
+import { CHAT, STEPS, type StoredLayout } from "@/lib/layout";
 import Splitter from "./Splitter";
-import { useLayout } from "./useLayout";
 
-/** Research IDE frame: top bar / [sidebar | chat | workspace] / status bar.
- *  Sidebar and chat are resizable and collapsible; sizes persist per browser. On narrow screens the
- *  three regions stack vertically instead. */
+/** Research IDE frame:
+ *
+ *    title bar ── breadcrumb · command search · current step · notifications · account
+ *    [ chat | step editor (only while a step is open) ] [ review steps (opt-in) ]
+ *    status bar ── save state
+ *
+ *  The chat is the workspace until the person opens a step; then the step opens beside it. On narrow screens
+ *  chat and step share the space through a two-way switch, and the steps panel becomes a drawer. */
 export default function IdeShell({
-  topBar,
-  sidebar,
+  layout,
+  update,
+  titleBar,
   chat,
   workspace,
+  editorVisible,
+  editorKey,
+  chatKey,
+  editorLabel,
+  steps,
   statusBar,
 }: {
-  topBar: ReactNode;
-  sidebar: ReactNode;
+  layout: StoredLayout;
+  update: (patch: Partial<StoredLayout>) => void;
+  titleBar: ReactNode;
   chat: ReactNode;
   workspace: ReactNode;
+  editorVisible: boolean;
+  /** Changes whenever another step is brought to the front (used to switch the mobile view to it). */
+  editorKey: string | null;
+  /** Changes whenever something asks for the chat (e.g. "Answer in chat"). */
+  chatKey: number;
+  editorLabel: string;
+  steps: ReactNode;
   statusBar: ReactNode;
 }) {
-  const [layout, update] = useLayout();
+  const showChat = !editorVisible || layout.chatOpen;
+  const [mobilePane, setMobilePane] = useState<"chat" | "editor">("chat");
+  useEffect(() => {
+    setMobilePane(editorKey ? "editor" : "chat");
+  }, [editorKey]);
+  useEffect(() => {
+    if (chatKey) setMobilePane("chat");
+  }, [chatKey]);
+
+  const stepsRef = useRef<HTMLElement>(null);
+  const wasOpen = useRef(layout.stepsOpen);
+  useEffect(() => {
+    // Move focus into the panel when the person opens it (not when a remembered layout restores it).
+    if (layout.stepsOpen && !wasOpen.current) stepsRef.current?.focus({ preventScroll: true });
+    wasOpen.current = layout.stepsOpen;
+  }, [layout.stepsOpen]);
+  const closeSteps = () => update({ stepsOpen: false });
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
+      <a
+        href="#composer"
+        className="sr-only z-[70] rounded bg-mark px-3 py-1 text-onmark focus:not-sr-only focus:fixed focus:left-2 focus:top-2"
+      >
+        Skip to the message box
+      </a>
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-line bg-panel px-2">
-        <button
-          type="button"
-          className="btn-ghost"
-          aria-pressed={layout.sidebarOpen}
-          aria-controls="ide-sidebar"
-          onClick={() => update({ sidebarOpen: !layout.sidebarOpen })}
-        >
-          {layout.sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-        </button>
-        <div className="flex min-w-0 flex-1 items-center justify-between gap-3">{topBar}</div>
-        <button
-          type="button"
-          className="btn-ghost"
-          aria-pressed={layout.chatOpen}
-          aria-controls="ide-chat"
-          onClick={() => update({ chatOpen: !layout.chatOpen })}
-        >
-          {layout.chatOpen ? "Hide chat" : "Show chat"}
-        </button>
+        {titleBar}
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        {layout.sidebarOpen && (
-          <>
-            <nav
-              id="ide-sidebar"
-              aria-label="Project explorer"
-              className="max-h-[40vh] shrink-0 overflow-y-auto border-b border-line bg-panel md:max-h-none md:w-[var(--w)] md:border-b-0"
-              style={{ "--w": `${layout.sidebar}px` } as React.CSSProperties}
+      {editorVisible && (
+        <div
+          role="group"
+          aria-label="Show"
+          className="flex shrink-0 gap-1 border-b border-line bg-panel p-1 md:hidden"
+        >
+          {(["chat", "editor"] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              aria-pressed={mobilePane === p}
+              className="flex-1 rounded-md px-3 py-1 text-sm text-muted aria-pressed:bg-raised aria-pressed:text-ink"
+              onClick={() => setMobilePane(p)}
             >
-              {sidebar}
-            </nav>
-            <div className="hidden md:flex">
-              <Splitter
-                label="Resize sidebar"
-                controls="ide-sidebar"
-                value={layout.sidebar}
-                bounds={SIDEBAR}
-                onChange={(v) => update({ sidebar: v })}
-              />
-            </div>
-          </>
-        )}
-        {layout.chatOpen && (
-          <>
+              {p === "chat" ? "Chat" : editorLabel}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="relative flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1">
+          {showChat && (
             <section
               id="ide-chat"
               aria-label="Chat"
-              className="flex min-h-[50vh] shrink-0 flex-col border-b border-line bg-panel md:min-h-0 md:w-[var(--w)] md:border-b-0"
+              className={`min-h-0 min-w-0 bg-panel ${
+                editorVisible
+                  ? `${mobilePane === "chat" ? "flex" : "hidden"} w-full md:flex md:w-[var(--w)] md:shrink-0`
+                  : "flex flex-1"
+              }`}
               style={{ "--w": `${layout.chat}px` } as React.CSSProperties}
             >
-              {chat}
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">{chat}</div>
+              {/* The splitter belongs to the panel it resizes (and so to its landmark). */}
+              {editorVisible && (
+                <div className="hidden md:flex">
+                  <Splitter
+                    label="Resize chat"
+                    controls="ide-chat"
+                    value={layout.chat}
+                    bounds={CHAT}
+                    onChange={(v) => update({ chat: v })}
+                  />
+                </div>
+              )}
             </section>
-            <div className="hidden md:flex">
-              <Splitter
-                label="Resize chat"
-                controls="ide-chat"
-                value={layout.chat}
-                bounds={CHAT}
-                onChange={(v) => update({ chat: v })}
-              />
-            </div>
+          )}
+          <main
+            aria-label="Open step"
+            hidden={!editorVisible}
+            className={`min-h-0 min-w-0 flex-1 bg-canvas ${mobilePane === "editor" ? "" : "max-md:hidden"}`}
+          >
+            {workspace}
+          </main>
+        </div>
+
+        {layout.stepsOpen && (
+          <>
+            {/* Below the large breakpoint the panel floats over the content, with a backdrop to dismiss it. */}
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-hidden
+              className="fixed inset-0 top-11 z-30 bg-black/40 lg:hidden"
+              onClick={closeSteps}
+            />
+            <aside
+              ref={stepsRef}
+              id="ide-steps"
+              aria-label="Review steps"
+              tabIndex={-1}
+              className="fixed bottom-0 right-0 top-11 z-40 flex w-[min(22rem,90vw)] border-l border-line bg-panel outline-none lg:static lg:z-auto lg:w-[var(--w)] lg:shrink-0 lg:border-l-0"
+              style={{ "--w": `${layout.steps}px` } as React.CSSProperties}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") closeSteps();
+              }}
+            >
+              <div className="hidden lg:flex">
+                <Splitter
+                  label="Resize review steps"
+                  controls="ide-steps"
+                  value={layout.steps}
+                  bounds={STEPS}
+                  direction={-1}
+                  onChange={(v) => update({ steps: v })}
+                />
+              </div>
+              <div className="min-w-0 flex-1">{steps}</div>
+            </aside>
           </>
         )}
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">{workspace}</main>
       </div>
 
-      <footer className="flex min-h-7 shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-line bg-panel px-3 py-1 text-xs text-muted">
+      <footer className="flex h-6 shrink-0 items-center gap-4 border-t border-line bg-panel px-3 text-2xs text-muted">
         {statusBar}
       </footer>
+      <Toaster />
     </div>
   );
 }

@@ -369,7 +369,7 @@ export default function AppraisalPanel({ projectId, canWrite }: { projectId: str
       </div>
       {job && !job.consent.can_send_documents && (
         <p className="text-xs text-muted">
-          AI suggestions are off: {job.consent.blocked_reason} Consent is managed in the Tables tab.
+          AI suggestions are off: {job.consent.blocked_reason} Consent is managed in the Evidence table step.
         </p>
       )}
       {job?.last_result?.stop_reason && (

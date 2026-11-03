@@ -1,8 +1,8 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { CHAT, DEFAULT_LAYOUT, SIDEBAR, type StoredLayout, clamp, parseLayout } from "@/lib/layout";
+import { CHAT, DEFAULT_LAYOUT, STEPS, type StoredLayout, clamp, parseLayout } from "@/lib/layout";
 
-const KEY = "srs.layout.v1";
+const KEY = "srs.layout.v2";
 
 /** Panel sizes and visibility, remembered per browser. Storage failures (private mode, quota) are ignored:
  *  the layout then simply resets on reload, which is harmless. */
@@ -22,8 +22,8 @@ export function useLayout() {
       const next = {
         ...prev,
         ...patch,
-        sidebar: clamp(patch.sidebar ?? prev.sidebar, SIDEBAR),
         chat: clamp(patch.chat ?? prev.chat, CHAT),
+        steps: clamp(patch.steps ?? prev.steps, STEPS),
       };
       try {
         window.localStorage.setItem(KEY, JSON.stringify(next));

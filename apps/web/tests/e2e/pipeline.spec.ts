@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { createProject, register } from "./helpers";
+import { createProject, openStep, register } from "./helpers";
 
 test("pipeline tab shows the autonomy policy and starts a real run that stops for the protocol", async ({
   page,
 }) => {
   await register(page);
   await createProject(page, "Pipeline journey");
-  await page.getByRole("tab", { name: "Pipeline" }).click();
+  await openStep(page, "Automation");
   await expect(page).toHaveURL(/tab=autopilot/);
   const panel = page.getByTestId("autopilot-panel");
   await expect(panel.getByText(/always stops for your judgement/)).toBeVisible();

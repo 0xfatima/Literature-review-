@@ -24,7 +24,7 @@ import {
 } from "./Editors";
 import { useProtocol, useRefreshReview, useWorkflow } from "./hooks";
 import ProtocolSummary from "./ProtocolSummary";
-import QuestionCard, { errorText } from "./QuestionCard";
+import { errorText } from "./QuestionCard";
 
 function DraftEditor({
   projectId,
@@ -181,6 +181,11 @@ function VersionHistory({ projectId, overview }: { projectId: string; overview: 
       <h2 id="hist-h" className="section-title mb-2">
         Version history
       </h2>
+      {overview.versions.length === 0 && (
+        <p className="text-sm text-muted">
+          No version has been approved yet. Approval happens at the end of setup.
+        </p>
+      )}
       <ol aria-label="Protocol versions" className="flex flex-col gap-1 text-sm">
         {overview.versions.map((v) => (
           <li key={v.id}>
@@ -266,7 +271,8 @@ export default function ProtocolPanel({
         <h2 className="mb-2 text-base font-semibold">No protocol yet</h2>
         <p className="mb-3 text-muted">
           The protocol fixes the review&apos;s objective, questions, framework, scope and eligibility criteria
-          before any search. Setup is a short conversation; you can pause and return at any time.
+          before any search. Setup happens in the chat, one question at a time, with suggestions you can
+          accept or change. You can pause and return at any time, and edit everything here afterwards.
         </p>
         <button
           type="button"
@@ -285,8 +291,42 @@ export default function ProtocolPanel({
     );
 
   const pending = run.status === "awaiting_input" ? run.pending_question : null;
+  const inSetup = run.stage === "DRAFT" || run.stage === "PROTOCOL_REVIEW";
+  const problem = run.status === "failed" || run.status === "needs_attention";
   return (
     <div className="flex max-w-3xl flex-col gap-8">
+      {(inSetup || problem) && run.conversation_id && (
+        <div
+          role={problem ? "alert" : "status"}
+          className={`flex flex-wrap items-center gap-3 rounded-md border p-3 ${
+            problem ? "border-danger/50 bg-danger/10" : "border-mark/50 bg-mark/10"
+          }`}
+        >
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">
+              {problem
+                ? "The protocol setup stopped"
+                : pending?.kind === "review"
+                  ? "The protocol is ready for your approval in the chat"
+                  : pending
+                    ? "Protocol setup is under way in the chat"
+                    : "Preparing the next protocol question…"}
+            </p>
+            <p className="text-xs text-muted">
+              {problem
+                ? (run.error_summary ?? "Restart it from the chat.")
+                : "Questions and suggestions are answered there. Use the fields below only to change something directly."}
+            </p>
+          </div>
+          <button
+            type="button"
+            className={problem ? "btn-secondary" : "btn"}
+            onClick={() => run.conversation_id && onOpenConversation(run.conversation_id)}
+          >
+            {pending?.kind === "review" ? "Review in chat" : "Continue in chat"}
+          </button>
+        </div>
+      )}
       {draft && (
         <section aria-labelledby="draft-h">
           <h2 id="draft-h" className="mb-1 text-base font-semibold">
@@ -295,22 +335,14 @@ export default function ProtocolPanel({
           {draft.change_reason && (
             <p className="mb-2 text-sm text-muted">Reason for this revision: {draft.change_reason}</p>
           )}
-          <p className="mb-4 text-sm text-muted">
-            Edit any field here or answer the questions in the Protocol setup chat; both save to the same
-            draft. Approval happens at the review step.
-          </p>
-          {pending?.kind === "review" && (
-            <div className="mb-6">
-              <h3 className="section-title mb-1">Review and approve</h3>
-              <QuestionCard
-                projectId={projectId}
-                question={pending}
-                protocol={overview}
-                disabled={!canWrite}
-              />
+          <details className="group rounded-md border border-line" open={!inSetup || approved !== null}>
+            <summary className="cursor-pointer select-none px-3 py-2 text-sm text-muted hover:text-ink">
+              Edit the draft directly
+            </summary>
+            <div className="border-t border-line p-3">
+              <DraftEditor projectId={projectId} draft={draft} disabled={!canWrite || isBusy(run)} />
             </div>
-          )}
-          <DraftEditor projectId={projectId} draft={draft} disabled={!canWrite || isBusy(run)} />
+          </details>
         </section>
       )}
 

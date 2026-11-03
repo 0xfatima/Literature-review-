@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { createProject, register } from "./helpers";
+import { createProject, openStep, register } from "./helpers";
 
 test("audit log tab lists real project events, filters them and exports CSV", async ({ page }) => {
   await register(page);
   await createProject(page, "Audit journey");
-  await page.getByRole("tab", { name: "Audit log" }).click();
+  await openStep(page, "Audit log");
   await expect(page).toHaveURL(/tab=audit/);
   const events = page.getByRole("list", { name: "Audit events" });
   await expect(events.getByText("project.created")).toBeVisible();

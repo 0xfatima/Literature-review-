@@ -10,12 +10,15 @@ export default function Splitter({
   value,
   bounds,
   onChange,
+  direction = 1,
 }: {
   label: string;
   controls: string;
   value: number;
   bounds: PanelBounds;
   onChange: (next: number) => void;
+  /** -1 for a panel on the right edge: dragging left makes it wider. */
+  direction?: 1 | -1;
 }) {
   const start = useRef<{ x: number; size: number } | null>(null);
 
@@ -29,14 +32,14 @@ export default function Splitter({
       aria-valuemax={bounds.max}
       aria-valuenow={value}
       tabIndex={0}
-      className="group relative w-1.5 shrink-0 cursor-col-resize touch-none bg-line/40 outline-none hover:bg-mark/50 focus-visible:bg-mark"
+      className="group relative w-1 shrink-0 cursor-col-resize touch-none bg-line outline-none hover:bg-mark/60 focus-visible:bg-mark"
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
         start.current = { x: e.clientX, size: value };
       }}
       onPointerMove={(e) => {
         if (!start.current) return;
-        onChange(start.current.size + (e.clientX - start.current.x));
+        onChange(start.current.size + (e.clientX - start.current.x) * direction);
       }}
       onPointerUp={(e) => {
         e.currentTarget.releasePointerCapture(e.pointerId);
@@ -44,7 +47,7 @@ export default function Splitter({
       }}
       onDoubleClick={() => onChange(bounds.initial)}
       onKeyDown={(e) => {
-        const next = keyResize(e.key, value, bounds);
+        const next = keyResize(e.key, value, bounds, direction);
         if (next !== null) {
           e.preventDefault();
           onChange(next);

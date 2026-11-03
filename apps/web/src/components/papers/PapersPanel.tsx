@@ -112,7 +112,7 @@ export function PaperFullText({ projectId, paper }: { projectId: string; paper: 
       </label>
       <p className="mt-1 max-w-prose text-2xs text-muted">
         Only upload a copy you are authorised to use. The file is read in the background; manage it in the
-        Files tab.
+        Files step.
       </p>
       <div className="mt-2">
         <UploadQueue items={uploader.items} onCancel={uploader.cancel} onDismiss={uploader.dismiss} />

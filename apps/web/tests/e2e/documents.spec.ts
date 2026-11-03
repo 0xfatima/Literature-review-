@@ -22,7 +22,7 @@ import { expect, test, type Page } from "@playwright/test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createProject, newUserPage, PASSWORD, register, uniqueEmail } from "./helpers";
+import { createProject, newUserPage, openStep, PASSWORD, register, uniqueEmail } from "./helpers";
 
 /* ---------- helpers ---------- */
 
@@ -60,7 +60,7 @@ function cleanup(dir: string) {
 }
 
 async function goToFilesTab(page: Page) {
-  await page.getByRole("tab", { name: "Files" }).click();
+  await openStep(page, "Files");
   await expect(page.getByRole("heading", { name: /Full-text PDFs/i })).toBeVisible();
 }
 
@@ -173,7 +173,9 @@ test("archived project disables the upload input", async ({ page }) => {
   await expect(page.getByText("uploads are disabled")).toBeVisible();
 });
 
-test("newly uploaded file appears in the sidebar without reloading the page", async ({ page }) => {
+test("a newly uploaded file appears in the Files step and in notifications without reloading", async ({
+  page,
+}) => {
   await skipIfStackDown(page);
   await register(page);
   await createProject(page, "Sidebar test");
@@ -183,8 +185,14 @@ test("newly uploaded file appears in the sidebar without reloading the page", as
   try {
     await page.getByTestId("file-input").setInputFiles(p);
     await expect(page.getByTestId("upload-queue").getByText(/Uploaded/)).toBeVisible({ timeout: 30_000 });
-    // The sidebar polls and should list the file without a page reload.
-    await expect(page.getByTestId("sidebar-files")).toContainText("paper.pdf", { timeout: 15_000 });
+    // The Files view polls and lists the file without a page reload; reading it is a background job,
+    // and its end is announced as a notification.
+    await expect(page.getByTestId("document-card").filter({ hasText: "paper.pdf" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole("button", { name: /^Notifications, \d+ unread$/ })).toBeVisible({
+      timeout: 30_000,
+    });
   } finally {
     cleanup(dir);
   }
