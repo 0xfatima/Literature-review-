@@ -431,7 +431,7 @@ function RelevanceControls({ projectId, canWrite }: { projectId: string; canWrit
           </button>
         )}
         {wasActive && (
-          <span className="text-sm text-muted">Assessing… progress is shown in the status bar.</span>
+          <span className="text-sm text-muted">Assessing… progress is shown at the top right.</span>
         )}
       </div>
       {s.llm.configured && (

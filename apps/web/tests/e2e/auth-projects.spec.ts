@@ -19,9 +19,16 @@ test("register, create project, reload, reopen, rename, archive, sign out, sign 
   await expect(page.getByRole("heading", { level: 1, name: "E2E review" })).toBeVisible();
 
   await page.reload(); // persistence across reload
-  await expect(page.getByText("Does X improve Y?")).toBeVisible();
+  // Project facts are one click away instead of taking screen space.
+  await page.getByRole("button", { name: "Project actions" }).click();
+  await page.getByRole("menuitem", { name: "Project details" }).click();
+  const details = page.getByRole("dialog", { name: "Project details" });
+  await expect(details.getByText("Does X improve Y?")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(details).toBeHidden();
 
-  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  await page.getByRole("button", { name: "Project actions" }).click();
+  await page.getByRole("menuitem", { name: "Rename project" }).click();
   await page.getByLabel("Project title").fill("Renamed review");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Renamed review" })).toBeVisible();

@@ -5,8 +5,10 @@ export interface PanelBounds {
   initial: number;
 }
 
-export const SIDEBAR: PanelBounds = { min: 180, max: 420, initial: 248 };
-export const CHAT: PanelBounds = { min: 280, max: 720, initial: 400 };
+/** Chat column width when a step is open beside it. With no step open the chat fills the window. */
+export const CHAT: PanelBounds = { min: 300, max: 760, initial: 420 };
+/** Right-hand "Review steps" panel. */
+export const STEPS: PanelBounds = { min: 240, max: 440, initial: 300 };
 export const KEY_STEP = 16;
 
 export function clamp(n: number, b: PanelBounds): number {
@@ -16,17 +18,19 @@ export function clamp(n: number, b: PanelBounds): number {
 
 /** Parse a stored layout; anything malformed falls back to defaults rather than breaking the page. */
 export interface StoredLayout {
-  sidebar: number;
   chat: number;
-  sidebarOpen: boolean;
+  steps: number;
+  /** Chat beside an open step. Ignored while no step is open: the chat is then the whole workspace. */
   chatOpen: boolean;
+  /** The steps panel is opt-in: closed until the person opens it. */
+  stepsOpen: boolean;
 }
 
 export const DEFAULT_LAYOUT: StoredLayout = {
-  sidebar: SIDEBAR.initial,
   chat: CHAT.initial,
-  sidebarOpen: true,
+  steps: STEPS.initial,
   chatOpen: true,
+  stepsOpen: false,
 };
 
 export function parseLayout(raw: string | null): StoredLayout {
@@ -34,17 +38,18 @@ export function parseLayout(raw: string | null): StoredLayout {
   try {
     const v = JSON.parse(raw) as Partial<Record<keyof StoredLayout, unknown>>;
     return {
-      sidebar: clamp(Number(v.sidebar), SIDEBAR),
       chat: clamp(Number(v.chat), CHAT),
-      sidebarOpen: typeof v.sidebarOpen === "boolean" ? v.sidebarOpen : true,
-      chatOpen: typeof v.chatOpen === "boolean" ? v.chatOpen : true,
+      steps: clamp(Number(v.steps), STEPS),
+      chatOpen: typeof v.chatOpen === "boolean" ? v.chatOpen : DEFAULT_LAYOUT.chatOpen,
+      stepsOpen: typeof v.stepsOpen === "boolean" ? v.stepsOpen : DEFAULT_LAYOUT.stepsOpen,
     };
   } catch {
     return DEFAULT_LAYOUT;
   }
 }
 
-/** Keyboard resizing for a separator (WAI-ARIA window splitter pattern). Returns null for unhandled keys. */
+/** Keyboard resizing for a separator (WAI-ARIA window splitter pattern). Returns null for unhandled keys.
+ *  `direction` is -1 for a panel on the right edge, where moving the splitter left makes the panel wider. */
 export function keyResize(
   key: string,
   current: number,

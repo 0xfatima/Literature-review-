@@ -28,11 +28,15 @@ export const JOB_STATE_TONE: Record<JobState, string> = {
   cancelled: "text-muted",
 };
 
+/** Still owned by the worker (queued, running or waiting for input). */
+export function isActiveJob(j: Pick<Job, "status">): boolean {
+  return j.status === "queued" || j.status === "running" || j.status === "awaiting_input";
+}
+
 /** Jobs that reached a terminal state since the previous poll (for notifications). */
 export function newlyFinished(previous: Job[], current: Job[]): Job[] {
-  const active = (j: Job) => j.status === "queued" || j.status === "running" || j.status === "awaiting_input";
-  const wasActive = new Set(previous.filter(active).map((j) => j.id));
-  return current.filter((j) => wasActive.has(j.id) && !active(j));
+  const wasActive = new Set(previous.filter(isActiveJob).map((j) => j.id));
+  return current.filter((j) => wasActive.has(j.id) && !isActiveJob(j));
 }
 
 export type StageStatus = "not_started" | "in_progress" | "done" | "attention";

@@ -245,7 +245,9 @@ function EvidenceTab({
   });
   if (!schema.data)
     return (
-      <p className="text-sm text-muted">Approve an extraction schema (Extraction tab) to record evidence.</p>
+      <p className="text-sm text-muted">
+        Approve an extraction schema (Extraction form step) to record evidence.
+      </p>
     );
   const fields = schema.data.field_definitions;
   return (
@@ -457,7 +459,7 @@ export default function PaperInspector({ projectId, canWrite }: { projectId: str
           </div>
           {reassess.isSuccess && (
             <p className="text-2xs text-muted" role="status">
-              Relevance reassessment queued; progress is shown in the status bar.
+              Relevance reassessment queued; progress is shown at the top right.
             </p>
           )}
           <div

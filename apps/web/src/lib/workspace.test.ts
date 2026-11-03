@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api";
-import { describeError, jobState, newlyFinished, splitHighlight } from "@/lib/workspace";
+import { describeError, isActiveJob, jobState, newlyFinished, splitHighlight } from "@/lib/workspace";
 import type { Job } from "@/lib/types";
 
 const job = (id: string, status: string): Job => ({
@@ -49,5 +49,16 @@ describe("workspace helpers", () => {
       " adults",
     ]);
     expect(splitHighlight("text", "none")).toBeNull();
+  });
+});
+
+describe("active jobs", () => {
+  it("counts queued, running and waiting-for-input jobs as active", () => {
+    expect(["queued", "running", "awaiting_input"].map((s) => isActiveJob({ status: s }))).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(["succeeded", "failed", "cancelled"].some((s) => isActiveJob({ status: s }))).toBe(false);
   });
 });

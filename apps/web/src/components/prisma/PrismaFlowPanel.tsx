@@ -154,7 +154,7 @@ export default function PrismaFlowPanel({
         {f.included_reports > 0 && f.included_reports === f.included_studies && (
           <p className="mt-1 text-xs text-muted">
             One report per study (the default assumption). Group several reports of the same study under
-            &ldquo;Studies and reports&rdquo; in the Full text tab.
+            &ldquo;Studies and reports&rdquo; in the Full text step.
           </p>
         )}
       </section>

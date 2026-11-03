@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createProject, register, signIn } from "./helpers";
+import { createProject, openStep, openStepsPanel, register, signIn, signOut } from "./helpers";
 
 test.setTimeout(120_000);
 
-// Cards in the chat thread. (The review card is also shown on the Protocol tab; that one is used further down.)
+// Protocol questions are asked only in the chat; the Protocol view links back to them.
 const chat = (page: Page) => page.getByRole("list", { name: "Messages" });
 const card = (page: Page, kind?: string) =>
   kind
@@ -25,9 +25,12 @@ test("protocol: set up, leave mid-way, return to the same step, approve, revise 
     "Effectiveness of aerobic exercise compared with usual care for depression in adults over 60",
   );
 
-  await page.getByRole("tab", { name: "Protocol" }).click();
+  await openStep(page, "Protocol");
   await page.getByRole("button", { name: "Start protocol setup" }).click();
-  await expect(page.getByRole("heading", { level: 2, name: "Protocol setup" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Protocol setup.*switch thread/ })).toBeVisible();
+  // While setup runs, the Protocol view points to the chat instead of repeating the questions.
+  await expect(page.getByRole("button", { name: "Continue in chat" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("tabpanel").getByTestId("question-card")).toHaveCount(0);
 
   let c = await nextCard(page, "objective");
   await c.getByLabel("Objective").fill("Estimate the effect of aerobic exercise on depressive symptoms.");
@@ -50,7 +53,7 @@ test("protocol: set up, leave mid-way, return to the same step, approve, revise 
   // Leave and come back: the same step is waiting (state is in the database and the checkpoint, not the page).
   c = await nextCard(page, "scope");
   const url = page.url();
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await signOut(page);
   await expect(page).toHaveURL(/\/login$/);
   await page.goto(url);
   await signIn(page, email);
@@ -80,14 +83,18 @@ test("protocol: set up, leave mid-way, return to the same step, approve, revise 
 
   // Correct stage after approval, also after a reload.
   await page.reload();
-  await page.getByRole("tab", { name: "Review status" }).click();
-  await expect(page.getByTestId("workflow-status")).toContainText("Protocol approved", { timeout: 20_000 });
-  await expect(
-    page.getByRole("list", { name: "Workflow stages" }).locator('[aria-current="step"]'),
-  ).toContainText("Search");
+  const steps = await openStepsPanel(page);
+  await expect(steps.getByRole("button", { name: /^Protocol.*Version 1 approved/ })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("current-activity")).toContainText("Nothing running");
 
   // Revise: reason required, new version, approved version untouched, impact shown.
-  await page.getByRole("tab", { name: "Protocol" }).click();
+  await steps.getByRole("button", { name: /^Protocol.*Version 1 approved/ }).click();
+  await expect(page.getByRole("tab", { name: "Protocol", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
   await expect(page.getByRole("heading", { name: "Approved protocol, version 1" })).toBeVisible();
   await page.getByLabel("Reason for revising the protocol").fill("Peer reviewer asked for adults 65+");
   await page.getByRole("button", { name: "Start a revision" }).click();
@@ -101,9 +108,10 @@ test("protocol: set up, leave mid-way, return to the same step, approve, revise 
   await edit.getByRole("button", { name: "Save protocol draft" }).click();
   await expect(edit.getByText("Saved")).toBeVisible();
 
-  const approve = page
-    .getByRole("region", { name: "Draft protocol, version 2" })
-    .getByRole("button", { name: "Approve protocol version 2" });
+  // Approval happens in the chat; the Protocol view says so and links there.
+  await expect(page.getByRole("button", { name: "Review in chat" })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Review in chat" }).click();
+  const approve = card(page, "review").getByRole("button", { name: "Approve protocol version 2" });
   await expect(approve).toBeEnabled({ timeout: 20_000 });
   await approve.click();
   await expect(page.getByRole("heading", { name: "Approved protocol, version 2" })).toBeVisible({

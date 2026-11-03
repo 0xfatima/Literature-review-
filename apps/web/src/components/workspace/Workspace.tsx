@@ -1,10 +1,6 @@
 "use client";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { ApiError, apiFetch, json } from "@/lib/api";
-import { ATTENTION, STAGES, stageIndex } from "@/lib/stages";
-import type { ConversationList, Job, Project } from "@/lib/types";
-import { useStatus } from "@/components/status/StatusContext";
+import type { Project } from "@/lib/types";
 import ProtocolPanel from "@/components/protocol/ProtocolPanel";
 import SearchPanel from "@/components/search/SearchPanel";
 import PapersPanel from "@/components/papers/PapersPanel";
@@ -20,373 +16,156 @@ import ScreeningPanel from "@/components/screening/ScreeningPanel";
 import PaperInspector from "@/components/papers/PaperInspector";
 import AutopilotPanel from "@/components/pipeline/AutopilotPanel";
 import AuditPanel from "@/components/audit/AuditPanel";
-import StageNavigator from "@/components/workspace/StageNavigator";
-import { useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
-import { WORKFLOW_STAGES, statusText } from "@/lib/protocol";
-import type { WorkflowState } from "@/lib/types";
+import Icon from "@/components/ui/Icon";
+import { type ViewId, nextAfterClose, stepOfView, viewLabel } from "@/lib/steps";
 
-/** The review workflow's named stages, with the current one marked. Conceptual order, not a fixed sequence. */
-function WorkflowTrack({ state }: { state: WorkflowState }) {
-  const run = state.run;
-  const current = run ? WORKFLOW_STAGES.indexOf(run.stage as (typeof WORKFLOW_STAGES)[number]) : -1;
-  return (
-    <ol aria-label="Workflow stages" className="flex flex-wrap gap-y-2">
-      {state.stages.map((s, i) => {
-        const st = i < current ? "done" : i === current ? "current" : "todo";
-        return (
-          <li key={s.id} aria-current={st === "current" ? "step" : undefined} className="flex items-center">
-            <span
-              className={`rounded px-2 py-0.5 text-xs ${
-                st === "current"
-                  ? "bg-mark font-semibold text-canvas"
-                  : st === "done"
-                    ? "text-ink"
-                    : "text-muted"
-              }`}
-            >
-              {s.label}
-              {st === "done" && <span className="sr-only"> (done)</span>}
-              {st === "current" && <span className="sr-only"> (current stage)</span>}
-            </span>
-            {i < state.stages.length - 1 && <span aria-hidden className="mx-1 h-px w-4 bg-line" />}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function WorkflowSection({
-  projectId,
-  canWrite,
-  onOpenProtocol,
-  onOpenSearch,
-}: {
-  projectId: string;
-  canWrite: boolean;
-  onOpenProtocol: () => void;
-  onOpenSearch?: () => void;
-}) {
-  const wf = useWorkflow(projectId);
-  const refresh = useRefreshReview(projectId);
-  const { reportError } = useStatus();
-  const recover = useMutation({
-    mutationFn: () => apiFetch<WorkflowState>(`/projects/${projectId}/workflow/recover`, { method: "POST" }),
-    onSettled: refresh,
-    onError: (e) => reportError(e instanceof ApiError ? e.message : "Could not restart the workflow."),
-  });
-  if (!wf.data) return <p className="text-muted">Loading the workflow…</p>;
-  const run = wf.data.run;
-  return (
-    <section aria-labelledby="wf-h">
-      <h2 id="wf-h" className="section-title mb-3">
-        Review workflow
-      </h2>
-      {run ? (
-        <>
-          <WorkflowTrack state={wf.data} />
-          <p className="mt-3 text-sm" data-testid="workflow-status">
-            {statusText(run)}
-          </p>
-          {(run.status === "failed" || run.status === "needs_attention") && (
-            <button
-              type="button"
-              className="btn-secondary mt-2"
-              disabled={!canWrite || recover.isPending}
-              onClick={() => recover.mutate()}
-            >
-              Restart the workflow from the saved protocol
-            </button>
-          )}
-        </>
-      ) : (
-        <p className="max-w-prose text-muted">The review protocol has not been started yet.</p>
-      )}
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" className="btn-secondary" onClick={onOpenProtocol}>
-          {run ? "Open the protocol" : "Set up the protocol"}
-        </button>
-        {run && run.status === "idle" && run.stage === "SEARCH" && onOpenSearch && (
-          <button type="button" className="btn" onClick={onOpenSearch}>
-            Go to search
-          </button>
-        )}
-      </div>
-    </section>
-  );
-}
-
-export const TABS = [
-  { id: "status", label: "Review status" },
-  { id: "autopilot", label: "Pipeline" },
-  { id: "protocol", label: "Protocol" },
-  { id: "search", label: "Search" },
-  { id: "screening", label: "Screening" },
-  { id: "papers", label: "Papers" },
-  { id: "files", label: "Files" },
-  { id: "fulltext", label: "Full text" },
-  { id: "flow", label: "PRISMA Flow" },
-  { id: "extraction", label: "Extraction" },
-  { id: "tables", label: "Tables" },
-  { id: "appraisal", label: "Appraisal" },
-  { id: "synthesis", label: "Synthesis" },
-  { id: "report", label: "Report" },
-  { id: "audit", label: "Audit log" },
-] as const;
-export type TabId = (typeof TABS)[number]["id"];
-
-function StageTrack({ status }: { status: string }) {
-  const current = stageIndex(status);
-  return (
-    <div>
-      <ol aria-label="Review stages" className="flex flex-wrap gap-y-2">
-        {STAGES.map((s, i) => {
-          const state = i < current ? "done" : i === current ? "current" : "todo";
-          return (
-            <li
-              key={s.id}
-              aria-current={state === "current" ? "step" : undefined}
-              className="flex items-center"
-            >
-              <span
-                className={`rounded px-2 py-0.5 text-xs ${
-                  state === "current"
-                    ? "bg-mark font-semibold text-canvas"
-                    : state === "done"
-                      ? "text-ink"
-                      : "text-muted"
-                }`}
-              >
-                {s.label}
-                {state === "done" && <span className="sr-only"> (done)</span>}
-                {state === "current" && <span className="sr-only"> (current stage)</span>}
-              </span>
-              {i < STAGES.length - 1 && <span aria-hidden className="mx-1 h-px w-4 bg-line" />}
-            </li>
-          );
-        })}
-      </ol>
-      {status === ATTENTION.id && (
-        <p className="mt-2 text-sm text-danger">This project needs attention before it can continue.</p>
-      )}
-    </div>
-  );
-}
-
-/** Main workspace. Tabs without a backend yet say so; they never show sample or invented records. */
+/** Editor area: the step views the person opened, as tabs (like editor tabs in VS Code). Opened views stay
+ *  mounted while hidden, so switching tabs never loses unsaved edits, filters or scroll position. */
 export default function Workspace({
   project,
-  conversations,
-  tab,
-  onTab,
+  open,
+  active,
+  onActivate,
+  onClose,
   onOpenConversation,
 }: {
   project: Project;
-  conversations: ConversationList | undefined;
-  tab: TabId;
-  onTab: (t: TabId) => void;
+  open: ViewId[];
+  active: ViewId | null;
+  onActivate: (v: ViewId) => void;
+  onClose: (v: ViewId) => void;
   onOpenConversation: (conversationId: string) => void;
 }) {
-  const qc = useQueryClient();
-  const { reportError } = useStatus();
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  // Visited panels stay mounted (hidden) so switching tabs never loses unsaved edits, filters or scroll position.
-  const [visited, setVisited] = useState<Set<TabId>>(() => new Set([tab]));
+  const [visited, setVisited] = useState<Set<ViewId>>(() => new Set(active ? [active] : []));
   useEffect(() => {
-    setVisited((v) => (v.has(tab) ? v : new Set([...v, tab])));
-  }, [tab]);
-  const panel = (id: TabId, node: ReactNode) =>
-    visited.has(id) ? (
-      <div
-        key={id}
-        role="tabpanel"
-        id={`panel-${id}`}
-        aria-labelledby={`tab-${id}`}
-        hidden={tab !== id}
-        className="px-6 py-5"
-      >
-        {node}
-      </div>
-    ) : null;
-  const messageTotal = conversations?.items.reduce((n, c) => n + c.message_count, 0) ?? 0;
+    if (active) setVisited((v) => (v.has(active) ? v : new Set([...v, active])));
+  }, [active]);
+  const canWrite = project.archived_at === null;
+  const pid = project.id;
+  const go = (v: ViewId) => onActivate(v);
 
-  const workerCheck = useMutation({
-    mutationFn: () =>
-      apiFetch<Job>("/jobs/ping", { method: "POST", ...json({ project_id: project.id, delay_s: 3 }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["jobs", project.id] }),
-    onError: (e) =>
-      reportError(
-        e instanceof ApiError && e.code === "job_already_active"
-          ? "A worker check is already running."
-          : e instanceof ApiError
-            ? e.message
-            : "Could not start the worker check.",
-      ),
-  });
+  const views: Record<ViewId, () => ReactNode> = {
+    protocol: () => (
+      <ProtocolPanel projectId={pid} canWrite={canWrite} onOpenConversation={onOpenConversation} />
+    ),
+    autopilot: () => <AutopilotPanel projectId={pid} canWrite={canWrite} />,
+    search: () => (
+      <SearchPanel
+        projectId={pid}
+        canWrite={canWrite}
+        onOpenProtocol={() => go("protocol")}
+        onOpenPapers={() => go("papers")}
+        onOpenScreening={() => go("screening")}
+      />
+    ),
+    papers: () => <PapersPanel projectId={pid} onOpenSearch={() => go("search")} />,
+    screening: () => <ScreeningPanel projectId={pid} canWrite={canWrite} onOpenSearch={() => go("search")} />,
+    files: () => <DocumentsPanel projectId={pid} canWrite={canWrite} />,
+    fulltext: () => (
+      <FullTextPanel
+        projectId={pid}
+        canWrite={canWrite}
+        onOpenScreening={() => go("screening")}
+        onOpenFiles={() => go("files")}
+      />
+    ),
+    extraction: () => <ExtractionPanel projectId={pid} canWrite={canWrite} />,
+    tables: () => <EvidenceTablePanel projectId={pid} canWrite={canWrite} />,
+    appraisal: () => <AppraisalPanel projectId={pid} canWrite={canWrite} />,
+    synthesis: () => <SynthesisPanel projectId={pid} canWrite={canWrite} />,
+    flow: () => <PrismaFlowPanel projectId={pid} onOpenFullText={() => go("fulltext")} />,
+    report: () => <ReportPanel projectId={pid} canWrite={canWrite} />,
+    audit: () => <AuditPanel projectId={pid} />,
+  };
 
   return (
-    <div className="flex min-h-full flex-col">
-      <StageNavigator projectId={project.id} activeTab={tab} onTab={(t) => onTab(t as TabId)} />
+    <div className="flex h-full min-h-0 flex-col">
       <div
         role="tablist"
-        aria-label="Workspace"
-        className="flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 pt-2"
+        aria-label="Open steps"
+        className="flex h-10 shrink-0 items-end overflow-x-auto border-b border-line bg-panel"
       >
-        {TABS.map((t, i) => {
-          const selected = t.id === tab;
+        {open.map((v, i) => {
+          const selected = v === active;
           return (
-            <button
-              key={t.id}
-              ref={(el) => {
-                tabRefs.current[t.id] = el;
-              }}
-              role="tab"
-              id={`tab-${t.id}`}
-              aria-selected={selected}
-              aria-controls={`panel-${t.id}`}
-              tabIndex={selected ? 0 : -1}
-              className={`-mb-px rounded-t border-b-2 px-3 py-1.5 text-sm ${
-                selected ? "border-mark text-ink" : "border-transparent text-muted hover:text-ink"
+            <div
+              key={v}
+              className={`group flex h-full shrink-0 items-center border-r border-line ${
+                selected ? "bg-canvas shadow-[inset_0_2px_0_rgb(var(--mark))]" : "hover:bg-raised"
               }`}
-              onClick={() => onTab(t.id)}
-              onKeyDown={(e) => {
-                const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-                if (!step) return;
-                e.preventDefault();
-                const next = TABS[(i + step + TABS.length) % TABS.length]!;
-                onTab(next.id);
-                tabRefs.current[next.id]?.focus();
-              }}
             >
-              {t.label}
-            </button>
+              <button
+                ref={(el) => {
+                  tabRefs.current[v] = el;
+                }}
+                role="tab"
+                id={`tab-${v}`}
+                aria-selected={selected}
+                aria-controls={`panel-${v}`}
+                tabIndex={selected ? 0 : -1}
+                title={`${stepOfView(v)?.label} step · Delete closes this tab`}
+                aria-keyshortcuts="Delete"
+                className={`h-full pl-3 pr-1 text-sm ${selected ? "text-ink" : "text-muted"}`}
+                onClick={() => onActivate(v)}
+                onKeyDown={(e) => {
+                  let next: ViewId | undefined;
+                  if (e.key === "ArrowRight") next = open[(i + 1) % open.length];
+                  else if (e.key === "ArrowLeft") next = open[(i - 1 + open.length) % open.length];
+                  else if (e.key === "Delete") {
+                    e.preventDefault();
+                    const after = nextAfterClose(open, v, active);
+                    onClose(v);
+                    // Keep keyboard focus in the tab row (or hand it to the message box when none is left).
+                    requestAnimationFrame(() =>
+                      (after ? tabRefs.current[after] : document.getElementById("composer"))?.focus(),
+                    );
+                    return;
+                  } else return;
+                  e.preventDefault();
+                  if (next) {
+                    onActivate(next);
+                    tabRefs.current[next]?.focus();
+                  }
+                }}
+              >
+                {viewLabel(v)}
+              </button>
+              {/* Pointer shortcut only: inside a tab list only tabs may be focusable, so keyboard and
+                  screen-reader users close a tab with Delete (or "Close …" in the command palette). */}
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                className={`mr-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink ${
+                  selected ? "" : "opacity-0 group-hover:opacity-100"
+                }`}
+                title={`Close ${viewLabel(v)}`}
+                onClick={() => onClose(v)}
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </div>
           );
         })}
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1">
-          {panel(
-            "status",
-            <div className="flex max-w-3xl flex-col gap-8">
-              <section aria-labelledby="stage-h">
-                <h2 id="stage-h" className="section-title mb-3">
-                  Where this review is
-                </h2>
-                <StageTrack status={project.status} />
-              </section>
-
-              <section aria-labelledby="topic-h">
-                <h2 id="topic-h" className="section-title mb-2">
-                  Original topic
-                </h2>
-                <p className="max-w-prose whitespace-pre-wrap">{project.topic_original}</p>
-              </section>
-
-              <section aria-labelledby="facts-h">
-                <h2 id="facts-h" className="sr-only">
-                  Project details
-                </h2>
-                <dl className="grid grid-cols-[9rem_1fr] gap-y-2 text-sm">
-                  <dt className="text-muted">Created</dt>
-                  <dd>{new Date(project.created_at).toLocaleString()}</dd>
-                  <dt className="text-muted">Last updated</dt>
-                  <dd>{new Date(project.updated_at).toLocaleString()}</dd>
-                  <dt className="text-muted">Chat threads</dt>
-                  <dd>{conversations ? conversations.total : "…"}</dd>
-                  <dt className="text-muted">Messages</dt>
-                  <dd>{conversations ? messageTotal : "…"}</dd>
-                </dl>
-              </section>
-
-              <WorkflowSection
-                projectId={project.id}
-                canWrite={project.archived_at === null}
-                onOpenProtocol={() => onTab("protocol")}
-                onOpenSearch={() => onTab("search")}
-              />
-
-              <section aria-labelledby="sys-h">
-                <h2 id="sys-h" className="section-title mb-2">
-                  Background processing
-                </h2>
-                <p className="mb-2 max-w-prose text-sm text-muted">
-                  Long tasks such as searches and PDF parsing will run in the background and report progress
-                  in the status bar. You can check that the background worker is responding now.
-                </p>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => workerCheck.mutate()}
-                  disabled={workerCheck.isPending}
-                >
-                  Check background worker
-                </button>
-              </section>
-            </div>,
-          )}
-          {panel(
-            "autopilot",
-            <AutopilotPanel projectId={project.id} canWrite={project.archived_at === null} />,
-          )}
-          {panel(
-            "protocol",
-            <ProtocolPanel
-              projectId={project.id}
-              canWrite={project.archived_at === null}
-              onOpenConversation={onOpenConversation}
-            />,
-          )}
-          {panel(
-            "search",
-            <SearchPanel
-              projectId={project.id}
-              canWrite={project.archived_at === null}
-              onOpenProtocol={() => onTab("protocol")}
-              onOpenPapers={() => onTab("papers")}
-              onOpenScreening={() => onTab("screening")}
-            />,
-          )}
-          {panel(
-            "screening",
-            <ScreeningPanel
-              projectId={project.id}
-              canWrite={project.archived_at === null}
-              onOpenSearch={() => onTab("search")}
-            />,
-          )}
-          {panel("papers", <PapersPanel projectId={project.id} onOpenSearch={() => onTab("search")} />)}
-          {panel("files", <DocumentsPanel projectId={project.id} canWrite={project.archived_at === null} />)}
-          {panel(
-            "fulltext",
-            <FullTextPanel
-              projectId={project.id}
-              canWrite={project.archived_at === null}
-              onOpenScreening={() => onTab("screening")}
-              onOpenFiles={() => onTab("files")}
-            />,
-          )}
-          {panel("flow", <PrismaFlowPanel projectId={project.id} onOpenFullText={() => onTab("fulltext")} />)}
-          {panel(
-            "extraction",
-            <ExtractionPanel projectId={project.id} canWrite={project.archived_at === null} />,
-          )}
-          {panel(
-            "tables",
-            <EvidenceTablePanel projectId={project.id} canWrite={project.archived_at === null} />,
-          )}
-          {panel(
-            "appraisal",
-            <AppraisalPanel projectId={project.id} canWrite={project.archived_at === null} />,
-          )}
-          {panel(
-            "synthesis",
-            <SynthesisPanel projectId={project.id} canWrite={project.archived_at === null} />,
-          )}
-          {panel("report", <ReportPanel projectId={project.id} canWrite={project.archived_at === null} />)}
-          {panel("audit", <AuditPanel projectId={project.id} />)}
+        <div className="min-w-0 flex-1 overflow-y-auto">
+          {[...visited].map((v) => (
+            <div
+              key={v}
+              role="tabpanel"
+              id={`panel-${v}`}
+              aria-labelledby={`tab-${v}`}
+              hidden={active !== v || !open.includes(v)}
+              className="px-6 py-5"
+            >
+              {views[v]()}
+            </div>
+          ))}
         </div>
-        <PaperInspector projectId={project.id} canWrite={project.archived_at === null} />
+        <PaperInspector projectId={pid} canWrite={canWrite} />
       </div>
     </div>
   );

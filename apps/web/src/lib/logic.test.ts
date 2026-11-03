@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mergeMessages, roleLabel, settlePending } from "./chat";
-import { CHAT, DEFAULT_LAYOUT, SIDEBAR, clamp, keyResize, parseLayout } from "./layout";
+import { CHAT, DEFAULT_LAYOUT, STEPS, clamp, keyResize, parseLayout } from "./layout";
 import { safeNext } from "./nav";
 import { STAGES, stageIndex, stageLabel } from "./stages";
 import type { Message } from "./types";
@@ -24,19 +24,21 @@ describe("safeNext", () => {
 
 describe("layout", () => {
   it("clamps sizes into bounds and survives NaN", () => {
-    expect(clamp(10, SIDEBAR)).toBe(SIDEBAR.min);
+    expect(clamp(10, STEPS)).toBe(STEPS.min);
     expect(clamp(9999, CHAT)).toBe(CHAT.max);
     expect(clamp(Number.NaN, CHAT)).toBe(CHAT.initial);
   });
   it("parses stored layout defensively", () => {
     expect(parseLayout(null)).toEqual(DEFAULT_LAYOUT);
     expect(parseLayout("{not json")).toEqual(DEFAULT_LAYOUT);
-    expect(parseLayout(JSON.stringify({ sidebar: 5000, chat: "x", sidebarOpen: false }))).toEqual({
-      sidebar: SIDEBAR.max,
+    expect(parseLayout(JSON.stringify({ steps: 5000, chat: "x", stepsOpen: true }))).toEqual({
+      steps: STEPS.max,
       chat: CHAT.initial,
-      sidebarOpen: false,
+      stepsOpen: true,
       chatOpen: true,
     });
+    // The steps panel is opt-in: closed unless the person opened it.
+    expect(DEFAULT_LAYOUT.stepsOpen).toBe(false);
   });
   it("resizes by keyboard and ignores other keys", () => {
     expect(keyResize("ArrowRight", 300, CHAT)).toBe(316);
@@ -44,6 +46,8 @@ describe("layout", () => {
     expect(keyResize("Home", 500, CHAT)).toBe(CHAT.min);
     expect(keyResize("End", 300, CHAT)).toBe(CHAT.max);
     expect(keyResize("a", 300, CHAT)).toBeNull();
+    // Right-edge panel: moving the splitter left widens it.
+    expect(keyResize("ArrowLeft", 300, STEPS, -1)).toBe(316);
   });
 });
 

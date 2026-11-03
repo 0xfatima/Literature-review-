@@ -43,3 +43,43 @@ export async function sendMessage(page: Page, text: string) {
   await page.getByRole("button", { name: "Send" }).click();
   await expect(messages(page).getByText(text, { exact: true })).toBeVisible();
 }
+
+/** Open a step's view (e.g. "Papers", "Evidence table") the way a keyboard user would: the command palette. */
+export async function openStep(page: Page, label: string) {
+  await page.keyboard.press("Control+k");
+  const input = page.getByRole("combobox", { name: "Type a command or the name of a step" });
+  await input.fill(label);
+  // Scoped to the palette: hidden views can contain <select> options too.
+  const options = page.getByRole("listbox", { name: "Commands" }).getByRole("option");
+  await expect(options.first()).toHaveText(new RegExp(`^${label}`));
+  await input.press("Enter");
+  await expect(page.getByRole("tab", { name: label, exact: true })).toHaveAttribute("aria-selected", "true");
+}
+
+/** Open the right-hand "Review steps" panel (it is closed by default). */
+export async function openStepsPanel(page: Page) {
+  const toggle = page.getByRole("button", { name: /^(Steps|Review steps)$/ });
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
+  return page.getByRole("complementary", { name: "Review steps" });
+}
+
+/** Run a command by its exact label from the command palette. */
+export async function runCommand(page: Page, label: string) {
+  await page.keyboard.press("Control+k");
+  await page.getByRole("combobox", { name: "Type a command or the name of a step" }).fill(label);
+  await page
+    .getByRole("listbox", { name: "Commands" })
+    .getByRole("option", { name: label, exact: true })
+    .click();
+}
+
+export async function signOut(page: Page) {
+  await page.getByRole("button", { name: /^Account:/ }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+}
+
+/** The thread list lives behind the thread title in the chat header. */
+export async function openThreads(page: Page) {
+  await page.getByRole("button", { name: /switch thread/ }).click();
+  return threads(page);
+}
