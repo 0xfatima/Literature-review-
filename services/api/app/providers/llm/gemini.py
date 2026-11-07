@@ -59,11 +59,13 @@ class GeminiProvider:
         max_retries: int = 3,
         max_backoff_s: float = 60.0,
         sleep: Callable[[float], None] = time.sleep,
+        throttle_key: str | None = None,
     ):
         if not api_key or not model:
             raise LLMError("not_configured", "LLM_API_KEY and LLM_MODEL must both be set.")
         self._key, self.model, self._client, self._throttle = api_key, model, client, throttle
         self._base = base_url.rstrip("/")
+        self._tkey = throttle_key or f"llm:{self.name}:{model}"
         self._interval, self._retries, self._max_backoff, self._sleep = (
             min_interval_s,
             max_retries,
@@ -89,7 +91,7 @@ class GeminiProvider:
         start = time.monotonic()
         last: LLMError | None = None
         for attempt in range(1, self._retries + 2):
-            self._throttle.wait(f"llm:{self.name}:{self.model}", self._interval)
+            self._throttle.wait(self._tkey, self._interval)
             hint: float | None = None
             try:
                 resp = self._client.post(url, json=body, headers=headers)
@@ -118,9 +120,7 @@ class GeminiProvider:
                 )
                 hint = _retry_delay(resp)
                 if resp.status_code == 429:  # Phase 15: share the back-off with every worker
-                    penalize(
-                        self._throttle, f"llm:{self.name}:{self.model}", hint if hint is not None else 2.0**attempt
-                    )
+                    penalize(self._throttle, self._tkey, hint if hint is not None else 2.0**attempt)
             if attempt <= self._retries:
                 base = 2.0 ** (attempt - 1) + random.uniform(0, 1)  # noqa: S311
                 self._sleep(float(min(hint if hint is not None else base, self._max_backoff)))

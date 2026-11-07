@@ -8,8 +8,8 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_user, get_dispatcher, get_owned_project
-from app.core.config import Settings, get_settings
+from app.api.deps import current_user, get_dispatcher, get_owned_project, get_user_settings
+from app.core.config import Settings
 from app.db.models import Project, User
 from app.db.session import get_db
 from app.pipeline import service as svc
@@ -22,7 +22,7 @@ Dispatch = Callable[[str, str], None]
 def pipeline_overview(
     project: Project = Depends(get_owned_project),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> dict[str, Any]:
     return svc.overview(db, settings, project)
 
@@ -33,7 +33,7 @@ def start_pipeline(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
 ) -> dict[str, Any]:
     return svc.run_view(db, svc.start(db, settings, dispatch, user, project, body))
@@ -45,7 +45,7 @@ def answer(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
 ) -> dict[str, Any]:
     return svc.run_view(db, svc.answer(db, settings, dispatch, user, project, body))
@@ -63,7 +63,7 @@ def resume(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
 ) -> dict[str, Any]:
     return svc.run_view(db, svc.resume(db, settings, dispatch, user, project))
@@ -74,7 +74,7 @@ def recover(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
 ) -> dict[str, Any]:
     return svc.run_view(db, svc.recover(db, settings, dispatch, user, project))
@@ -93,7 +93,7 @@ def rerun(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
 ) -> dict[str, Any]:
     return svc.run_view(db, svc.rerun(db, settings, dispatch, user, project, body))
@@ -110,7 +110,7 @@ def confirm(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> dict[str, Any]:
     return svc.confirm_decisions(db, settings, user, project, body)
 

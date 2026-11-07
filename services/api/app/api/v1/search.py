@@ -10,8 +10,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_user, get_dispatcher, get_owned_project, get_rate_limiter
-from app.core.config import Settings, get_settings
+from app.api.deps import current_user, get_dispatcher, get_owned_project, get_rate_limiter, get_user_settings
+from app.core.config import Settings
+from app.core.errors import RateLimited
 from app.core.rate_limit import RateLimiter
 from app.db.models import Project, SearchRun, User
 from app.db.session import get_db
@@ -41,7 +42,7 @@ def _out(db: Session, settings: Settings, project: Project, run: SearchRun) -> S
 
 @router.get("/search/providers", response_model=list[ProviderInfo])
 def list_providers(
-    project: Project = Depends(get_owned_project), settings: Settings = Depends(get_settings)
+    project: Project = Depends(get_owned_project), settings: Settings = Depends(get_user_settings)
 ) -> list[dict[str, Any]]:
     return search_service.provider_catalog(settings)
 
@@ -50,12 +51,33 @@ def list_providers(
 def preview_search(
     body: SearchPlanRequest,
     project: Project = Depends(get_owned_project),
+    user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> SearchPlan:
-    """What a search would send to each provider, built from the approved protocol (read-only)."""
+    """What a search would send to each provider, built from the approved protocol."""
     plan = search_service.build_plan(
-        db, settings, project, tier=body.tier, expression=body.expression, provider_keys=body.providers
+        db, settings, project, tier=body.tier, expression=body.expression, provider_keys=body.providers, user=user
+    )
+    return SearchPlan(**plan, catalog=search_service.provider_catalog(settings))
+
+
+@router.post("/search/suggest-expression", response_model=SearchPlan)
+def suggest_expression(
+    body: SearchPlanRequest,
+    project: Project = Depends(get_owned_project),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_user_settings),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> SearchPlan:
+    """Ask the AI model for a NEW search expression (replaces the cached one), then return the plan built from it."""
+    allowed, retry = limiter.hit(f"suggest-expr:{user.id}", settings.rate_limit_assistant_per_hour, 3600)
+    if not allowed:
+        raise RateLimited(retry)
+    search_service.regenerate_ai_expression(db, settings, project, user)
+    plan = search_service.build_plan(
+        db, settings, project, tier=body.tier, expression=None, provider_keys=body.providers, user=user
     )
     return SearchPlan(**plan, catalog=search_service.provider_catalog(settings))
 
@@ -70,7 +92,7 @@ def list_search_runs(
     limit: int = Query(50, ge=1, le=200),
     project: Project = Depends(get_owned_project),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> SearchRunList:
     runs = search_service.list_runs(db, project, limit)
     approved, reg = search_service.approved_id(db, project), search_service.providers(settings)
@@ -83,7 +105,7 @@ def start_search_run(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> SearchRunOut:
@@ -106,7 +128,7 @@ def read_search_run(
     search_run_id: uuid.UUID,
     project: Project = Depends(get_owned_project),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> SearchRunOut:
     return _out(db, settings, project, search_service.get_run(db, project, search_run_id))
 
@@ -117,7 +139,7 @@ def retry_search_run(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
 ) -> SearchRunOut:
     run = search_service.retry(db, settings, dispatch, user, project, search_run_id)
@@ -130,7 +152,7 @@ def cancel_search_run(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> SearchRunOut:
     return _out(db, settings, project, search_service.cancel(db, user, project, search_run_id))
 
@@ -142,7 +164,7 @@ def decide_broaden(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> SearchRunOut:
     """Record the answer to "broaden discovery to additional sources?" (yes / no / later)."""
     run = search_service.decide_broaden(db, user, project, search_run_id, body.decision)
@@ -185,7 +207,7 @@ def read_paper(
     paper_id: uuid.UUID,
     project: Project = Depends(get_owned_project),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> PaperDetail:
     data = paper_service.detail(db, project, paper_id)
     documents = document_service.documents_for_paper_id(db, settings, paper_id)

@@ -27,13 +27,13 @@ from app.core.rate_limit import RateLimiter
 from app.db.models import SEARCH_RUN_ACTIVE, Job, Project, ProtocolVersion, SearchQuery, SearchRun, User
 from app.jobs import fsm
 from app.protocol import stages
-from app.providers.scholarly import ScholarlySource, match_protocol_sources, registry
+from app.providers.scholarly import ScholarlySource, is_default_on, match_protocol_sources, registry
 from app.providers.scholarly.http import public_url
 from app.repositories import search as repo
 from app.repositories import workflows as wf_repo
 from app.search import derive
 from app.search import query as q
-from app.services import audit_service, job_service, protocol_service, workflow_service
+from app.services import audit_service, job_service, protocol_service, search_suggestion_service, workflow_service
 from app.services.job_service import Dispatcher
 
 JOB_TYPE = "search.run"
@@ -93,7 +93,7 @@ def _default_providers(
 ) -> list[str]:
     if tier == "open_access":
         chosen = [k for k in matched if reg[k].tier == "open_access"]
-        return chosen or [k for k, p in reg.items() if p.tier == "open_access" and k != "arxiv"]
+        return chosen or [k for k, p in reg.items() if p.tier == "open_access" and is_default_on(k, p)]
     extra = [k for k, p in reg.items() if p.tier == "additional"]
     return extra + [k for k in matched if k not in used_before and k not in extra and k in reg]
 
@@ -131,13 +131,18 @@ def build_plan(
     tier: str = "open_access",
     expression: str | None = None,
     provider_keys: list[str] | None = None,
+    user: User | None = None,
 ) -> dict[str, Any]:
-    """A preview of exactly what a search would send. Read-only; also the basis of `start`."""
+    """A preview of exactly what a search would send; also the basis of `start`. The only write it may do is caching
+    an AI-built search expression for the approved protocol version (search_suggestion_service)."""
     if tier not in TIER_LABELS:
         raise ValidationFailed("Unknown search tier.", details=[{"field": "tier", "issue": "invalid"}])
     approved = _approved_or_fail(db, project)
     content = protocol_service.to_content(approved)
-    derived = derive.derive(content, project.topic_original)
+    ai, ai_note = search_suggestion_service.get_or_create(db, settings, project, approved, content, user=user)
+    derived = derive.derive(content, project.topic_original, ai=ai)
+    if ai_note and derived.source != "search_strategy":
+        derived.explanation.append(ai_note)
     fp = derive.filter_plan(content)
     reg = providers(settings)
     matched, unsupported = match_protocol_sources(list(content.get("sources") or []), reg)
@@ -197,6 +202,22 @@ def build_plan(
         "ready": node is not None and bool(selected),
         "max_records_per_provider": settings.search_max_records_per_provider,
     }
+
+
+def regenerate_ai_expression(db: Session, settings: Settings, project: Project, user: User) -> None:
+    approved = _approved_or_fail(db, project)
+    content = protocol_service.to_content(approved)
+    if str(settings.search_query_builder).lower() != "auto":
+        raise Conflict("AI query building is disabled on this server (SEARCH_QUERY_BUILDER=rules).", code="ai_disabled")
+    strategy = (content.get("search_strategy") or "").strip()
+    if strategy and derive._looks_boolean(strategy):  # noqa: SLF001
+        raise Conflict(
+            "The protocol already has a Boolean search strategy, which is always used as written.",
+            code="protocol_has_strategy",
+        )
+    ai, note = search_suggestion_service.get_or_create(db, settings, project, approved, content, user=user, force=True)
+    if ai is None:
+        raise Conflict(note or "The AI model could not build a search expression.", code="ai_unavailable")
 
 
 def provider_catalog(settings: Settings) -> list[dict[str, Any]]:
@@ -265,7 +286,7 @@ def start(
                 "Run an open-access-first search and choose to broaden discovery before using additional sources.",
                 code="broaden_not_confirmed",
             )
-    plan = build_plan(db, settings, project, tier=tier, expression=expression, provider_keys=provider_keys)
+    plan = build_plan(db, settings, project, tier=tier, expression=expression, provider_keys=provider_keys, user=user)
     if not plan["ready"]:
         raise ValidationFailed(
             "Write a search expression and choose at least one source.",

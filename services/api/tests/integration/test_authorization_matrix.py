@@ -19,7 +19,16 @@ from tests.fixtures import pdfs
 from .conftest import CSRF
 from .support import approved, run_search_jobs, start_search, upload
 
-PUBLIC = {("POST", "/api/v1/auth/register"), ("POST", "/api/v1/auth/login")}
+PUBLIC = {
+    ("POST", "/api/v1/auth/register"),
+    ("POST", "/api/v1/auth/login"),
+    # account recovery works without a session by design (they reveal nothing about whether an account exists)
+    ("GET", "/api/v1/auth/config"),
+    ("POST", "/api/v1/auth/password-reset/request"),
+    ("POST", "/api/v1/auth/password-reset/confirm"),
+    ("POST", "/api/v1/auth/verify-email/request"),
+    ("POST", "/api/v1/auth/verify-email/confirm"),
+}
 # A body that satisfies every current request schema well enough to get PAST validation if authorization
 # were missing (authorization dependencies run first in FastAPI, but we do not want to rely on that alone).
 BODY = {"title": "x", "topic": "x", "content": "x", "expected_version": 1, "delay_s": 0, "reason": "xyz"}

@@ -66,10 +66,12 @@ class CrossrefSource:
         self._mailto = mailto
 
     def build_query(self, expression: q.Node, filters: FilterPlan) -> ProviderQuery:
-        terms = q.positive_terms(expression)
+        # One or two synonyms per concept: sending every synonym lets the concept with the most synonyms dominate the
+        # relevance ranking, which is how unrelated works got to the top.
+        terms = q.core_terms(expression, per_group=2) or q.positive_terms(expression)
         text = " ".join(f'"{t.text}"' if t.phrase else t.text for t in terms)
         limitations = [
-            "Crossref does not support Boolean queries: the expression was reduced to its keywords and results are "
+            "Crossref does not support Boolean queries: the main terms of each concept were sent and results are "
             "ranked by relevance, so they are broader than the Boolean strategy and can include unrelated works."
         ]
         if q.has_operator(expression, q.Not):

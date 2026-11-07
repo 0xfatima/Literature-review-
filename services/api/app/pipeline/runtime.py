@@ -143,7 +143,17 @@ def advance(db: Session, job: Job, dispatch: Dispatcher | None = None) -> str:
         run.status, run.error_summary = "failed", "The project or its owner no longer exists."
         db.commit()
         return "failed"
-    ctx = steps.Ctx(db, get_settings(), dispatch or send_task, get_rate_limiter(), user, project, run)
+    from app.services import user_llm_service
+
+    ctx = steps.Ctx(
+        db,
+        user_llm_service.settings_for(db, get_settings(), user.id),
+        dispatch or send_task,
+        get_rate_limiter(),
+        user,
+        project,
+        run,
+    )
     # End the ORM transaction the lookups above opened BEFORE entering the checkpointer. Its first use in a worker
     # process runs LangGraph's setup (CREATE INDEX CONCURRENTLY), which waits for every open transaction to finish,
     # including this session's own, so an open transaction here hangs the worker forever (and, through the setup

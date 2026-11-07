@@ -20,7 +20,7 @@ from app.providers.scholarly.throttle import Throttle, penalize
 
 log = logging.getLogger(__name__)
 RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
-SECRET_PARAMS = frozenset({"api_key", "mailto", "email", "apikey", "key"})
+SECRET_PARAMS = frozenset({"api_key", "mailto", "email", "apikey", "key", "tool"})
 
 
 class ProviderError(Exception):
@@ -68,14 +68,26 @@ class HttpFetcher:
         jitter = random.uniform(0, self.backoff_base_s)  # noqa: S311  (not security relevant)
         return float(min(self.backoff_base_s * 2.0 ** (attempt - 1) + jitter, self.max_backoff_s))
 
-    def get(self, provider: str, url: str, params: dict[str, Any], *, min_interval_s: float) -> httpx.Response:
+    def get(
+        self,
+        provider: str,
+        url: str,
+        params: dict[str, Any],
+        *,
+        min_interval_s: float,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response:
         attempts = self.max_retries + 1
         last: ProviderError | None = None
         for attempt in range(1, attempts + 1):
             self.throttle.wait(f"scholarly:{provider}", min_interval_s)
             self.requests_made += 1
             try:
-                resp = self.client.get(url, params=params)
+                resp = (
+                    self.client.get(url, params=params, headers=headers)
+                    if headers
+                    else self.client.get(url, params=params)
+                )
             except httpx.TimeoutException:
                 last = ProviderError(provider, "timeout", f"{provider} did not respond in time", attempts=attempt)
                 hint = None
@@ -117,15 +129,31 @@ class HttpFetcher:
         assert last is not None
         raise last
 
-    def get_json(self, provider: str, url: str, params: dict[str, Any], *, min_interval_s: float) -> Any:
-        resp = self.get(provider, url, params, min_interval_s=min_interval_s)
+    def get_json(
+        self,
+        provider: str,
+        url: str,
+        params: dict[str, Any],
+        *,
+        min_interval_s: float,
+        headers: dict[str, str] | None = None,
+    ) -> Any:
+        resp = self.get(provider, url, params, min_interval_s=min_interval_s, headers=headers)
         try:
             return resp.json()
         except ValueError:
             raise ProviderError(provider, "malformed", f"{provider} returned a response that is not JSON") from None
 
-    def get_text(self, provider: str, url: str, params: dict[str, Any], *, min_interval_s: float) -> str:
-        return self.get(provider, url, params, min_interval_s=min_interval_s).text
+    def get_text(
+        self,
+        provider: str,
+        url: str,
+        params: dict[str, Any],
+        *,
+        min_interval_s: float,
+        headers: dict[str, str] | None = None,
+    ) -> str:
+        return self.get(provider, url, params, min_interval_s=min_interval_s, headers=headers).text
 
 
 def public_url(endpoint: str, params: dict[str, Any]) -> str:

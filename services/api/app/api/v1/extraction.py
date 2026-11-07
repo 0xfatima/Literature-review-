@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_user, get_dispatcher, get_owned_project, get_rate_limiter
-from app.core.config import Settings, get_settings
+from app.api.deps import current_user, get_dispatcher, get_owned_project, get_rate_limiter, get_user_settings
+from app.core.config import Settings
 from app.core.errors import ValidationFailed
 from app.core.rate_limit import RateLimiter
 from app.db.models import DocumentPage, EvidenceItem, Project, User
@@ -272,7 +272,7 @@ def extraction_status(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> dict[str, Any]:
     return extraction_service.status(db, settings, user, project, svc.get_schema(db, project, schema_id))
 
@@ -284,7 +284,7 @@ def start_extraction(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Callable[[str, str], None] = Depends(get_dispatcher),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:
@@ -309,7 +309,7 @@ def start_extraction(
 def consent_status(
     project: Project = Depends(get_owned_project),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> dict[str, Any]:
     return consent_service.status(db, settings, project)
 
@@ -320,7 +320,7 @@ def consent_grant(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> dict[str, Any]:
     return consent_service.grant(db, settings, user, project, str(body.get("notice_version") or ""))
 
@@ -330,6 +330,6 @@ def consent_revoke(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> dict[str, Any]:
     return consent_service.revoke(db, settings, user, project)

@@ -9,9 +9,9 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_user, get_llm_gateway, get_owned_project, get_rate_limiter
+from app.api.deps import current_user, get_llm_gateway, get_owned_project, get_rate_limiter, get_user_settings
 from app.assist import service as svc
-from app.core.config import Settings, get_settings
+from app.core.config import Settings
 from app.core.errors import ValidationFailed
 from app.core.rate_limit import RateLimiter
 from app.db.models import Project, User
@@ -32,7 +32,7 @@ def _uuid(v: Any, name: str) -> uuid.UUID | None:
 
 @router.get("/assist/status")
 def assist_status(
-    project: Project = Depends(get_owned_project), settings: Settings = Depends(get_settings)
+    project: Project = Depends(get_owned_project), settings: Settings = Depends(get_user_settings)
 ) -> dict[str, Any]:
     llm = describe(settings)
     return {
@@ -81,7 +81,7 @@ def ask_assistant(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     gw: LLMGateway = Depends(get_llm_gateway),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:

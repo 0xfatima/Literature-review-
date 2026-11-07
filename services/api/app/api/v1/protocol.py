@@ -8,8 +8,8 @@ from collections.abc import Callable
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_user, get_dispatcher, get_owned_project
-from app.core.config import Settings, get_settings
+from app.api.deps import current_user, get_dispatcher, get_owned_project, get_user_settings
+from app.core.config import Settings
 from app.db.models import Project, User, WorkflowRun
 from app.db.session import get_db
 from app.protocol.stages import STAGE_LABELS, STAGES
@@ -77,7 +77,7 @@ def start_protocol_revision(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
 ) -> WorkflowState:
     return _state(workflow_service.revise(db, settings, dispatch, user, project, reason=body.reason))
@@ -94,7 +94,7 @@ def start_workflow(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
 ) -> WorkflowState:
     run, created = workflow_service.start(db, settings, dispatch, user, project)
@@ -110,7 +110,7 @@ def resume_workflow(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
 ) -> WorkflowState:
     run, created = workflow_service.resume(
@@ -134,7 +134,7 @@ def recover_workflow(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Dispatch = Depends(get_dispatcher),
 ) -> WorkflowState:
     return _state(workflow_service.recover(db, settings, dispatch, user, project))
