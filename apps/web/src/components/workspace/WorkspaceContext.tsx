@@ -17,6 +17,8 @@ export interface WorkspaceNav {
   inspectorTab: InspectorTab;
   setInspectorTab: (t: InspectorTab) => void;
   openTab: (tab: string) => void;
+  /** The step view in front (chat commands such as "next step" start from it). */
+  activeView: string | null;
   /** The chat thread in view, so contextual actions can post their result there. */
   conversationId: string | null;
   /** Put text into the chat composer and focus it (e.g. "Ask a question" on an approval prompt). */
@@ -34,6 +36,7 @@ export function WorkspaceProvider({
   onPaper,
   onTab,
   conversationId,
+  activeView = null,
   children,
 }: {
   paperId: string | null;
@@ -41,6 +44,7 @@ export function WorkspaceProvider({
   onPaper: (id: string | null, tab: InspectorTab) => void;
   onTab: (tab: string) => void;
   conversationId: string | null;
+  activeView?: string | null;
   children: ReactNode;
 }) {
   const composer = useRef<((text: string) => void) | null>(null);
@@ -61,6 +65,7 @@ export function WorkspaceProvider({
       inspectorTab,
       setInspectorTab,
       openTab: onTab,
+      activeView,
       conversationId,
       composeInChat,
       registerComposer,
@@ -71,6 +76,7 @@ export function WorkspaceProvider({
       inspectorTab,
       setInspectorTab,
       onTab,
+      activeView,
       conversationId,
       composeInChat,
       registerComposer,

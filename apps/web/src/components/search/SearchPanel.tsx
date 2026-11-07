@@ -85,6 +85,19 @@ function PlanEditor({
     onError: (e) => setPlanError(errMessage(e, "Could not build the search plan.")),
   });
 
+  // A chat command (e.g. "suggest better keywords") changed the stored query: show the new plan.
+  useEffect(() => {
+    const onChanged = (e: Event) => {
+      if ((e as CustomEvent<{ view?: string }>).detail?.view === "search") {
+        setExpression(null);
+        preview.mutate({ expression: null, providers });
+      }
+    };
+    window.addEventListener("srs:changed", onChanged);
+    return () => window.removeEventListener("srs:changed", onChanged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providers]);
+
   // First load: the plan the approved protocol produces.
   useEffect(() => {
     preview.mutate({ expression: null, providers: null });

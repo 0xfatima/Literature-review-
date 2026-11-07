@@ -64,6 +64,7 @@ LABELS: dict[str, str] = {
     "user.llm_settings_updated": "Personal AI settings changed",
     "user.llm_settings_removed": "Personal AI settings removed",
     "search.expression_suggested": "AI search expression suggested",
+    "assistant.command": "Chat command interpreted",
     "protocol.approved": "Protocol approved",
     "protocol.revision_started": "Protocol revision started",
     "protocol.draft_updated": "Protocol draft edited",

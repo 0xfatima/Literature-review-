@@ -17,6 +17,7 @@ import PaperInspector from "@/components/papers/PaperInspector";
 import AutopilotPanel from "@/components/pipeline/AutopilotPanel";
 import AuditPanel from "@/components/audit/AuditPanel";
 import Icon from "@/components/ui/Icon";
+import StepNav from "./StepNav";
 import { type ViewId, nextAfterClose, stepOfView, viewLabel } from "@/lib/steps";
 
 /** Editor area: the step views the person opened, as tabs (like editor tabs in VS Code). Opened views stay
@@ -162,6 +163,7 @@ export default function Workspace({
               className="px-6 py-5"
             >
               {views[v]()}
+              <StepNav projectId={pid} view={v} onGo={go} />
             </div>
           ))}
         </div>

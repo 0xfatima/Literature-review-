@@ -5,6 +5,7 @@ import Icon from "@/components/ui/Icon";
 import Menu from "@/components/ui/Menu";
 import { PopoverPanel, usePopover } from "@/components/ui/Popover";
 import { ApiError, apiFetch, json } from "@/lib/api";
+import { type ChatCommand, COMMAND_EXAMPLES, announceChange } from "@/lib/commands";
 import { type PendingSend, mergeMessages, newClientId, roleLabel, settlePending } from "@/lib/chat";
 import type {
   Conversation,
@@ -225,6 +226,8 @@ export default function ChatPanel({
     onError: (e) => reportError(describeError(e, "Could not restart the workflow.")),
   });
   const [askAi, setAskAi] = useState(false);
+  const [command, setCommand] = useState<ChatCommand | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     // Switching threads resets thread-local UI state; each thread's unsent draft is restored.
@@ -353,6 +356,58 @@ export default function ChatPanel({
     onError: (e) => reportError(errText(e)),
   });
 
+  /** Messages are first checked for a command ("run the search", "go to screening", "next step"). Navigation
+   *  happens at once; actions that change data wait for the person to confirm. Anything else is sent as usual. */
+  const interpret = useMutation({
+    mutationFn: (text: string) =>
+      apiFetch<ChatCommand>(`/projects/${pid}/assist/command`, {
+        method: "POST",
+        ...json({
+          text,
+          current_view: ws?.activeView ?? null,
+          conversation_id: cid,
+          record: !isProtocolThread,
+          strict: isProtocolThread,
+          allow_ai: aiMode,
+        }),
+      }),
+  });
+  const runCommand = useMutation({
+    mutationFn: (c: ChatCommand) =>
+      apiFetch(c.request!.path, { method: c.request!.method, ...json(c.request!.body) }),
+    onSuccess: (_r, c) => {
+      setCommand(null);
+      setNotice(
+        `Done: ${c.reply?.replace(/^I can /, "").replace(/\.$/, "") ?? c.action}. Opening ${c.view}.`,
+      );
+      if (c.view) ws?.openTab(c.view);
+      announceChange(c.view);
+      qc.invalidateQueries({ queryKey: ["workspace", pid] });
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["project", pid] });
+    },
+    onError: (e) => reportError(describeError(e, "That action could not be started.")),
+  });
+
+  async function dispatch(text: string): Promise<boolean> {
+    let c: ChatCommand;
+    try {
+      c = await interpret.mutateAsync(text);
+    } catch {
+      return false; // the interpreter is a convenience: on any error the message is sent normally
+    }
+    if (c.action === "none") return false;
+    setDraft("");
+    setNotice(c.reply ?? null);
+    if (!isProtocolThread) {
+      qc.invalidateQueries({ queryKey: ["messages", pid, cid] });
+      refreshThreads();
+    }
+    if (c.request) setCommand(c);
+    else if (c.view) ws?.openTab(c.view);
+    return true;
+  }
+
   function submit() {
     const content = draft.trim();
     if (!content || !cid) return;
@@ -363,10 +418,13 @@ export default function ChatPanel({
   const column = wide ? "mx-auto w-full max-w-3xl" : "w-full";
   const aiAvailable = assist.data?.assistant_available === true;
   const aiMode = askAi && aiAvailable;
-  function primary() {
-    if (aiMode) {
-      if (draft.trim()) ask.mutate(draft.trim());
-    } else submit();
+  async function primary() {
+    const text = draft.trim();
+    if (!text || interpret.isPending) return;
+    setNotice(null);
+    if (await dispatch(text)) return;
+    if (aiMode) ask.mutate(text);
+    else submit();
   }
 
   if (!conversation) {
@@ -638,11 +696,47 @@ export default function ChatPanel({
         </div>
       </div>
 
+      {(command || notice) && (
+        <div className={`${column} shrink-0 px-3 pt-2`} aria-live="polite">
+          {command ? (
+            <div className="rounded-lg border border-ok/50 bg-ok/10 p-3 text-sm">
+              <p className="text-ink">{command.reply}</p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-ok px-3 py-1.5 text-sm font-semibold text-white hover:bg-ok/90 disabled:opacity-60"
+                  disabled={!canWrite || runCommand.isPending}
+                  onClick={() => runCommand.mutate(command)}
+                >
+                  <Icon name="check" size={14} /> {runCommand.isPending ? "Starting…" : "Yes, do it"}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => {
+                    setCommand(null);
+                    setNotice(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="flex items-center gap-2 text-xs text-ok">
+              <Icon name="check" size={14} /> {notice}
+              <button type="button" className="ml-auto text-muted underline" onClick={() => setNotice(null)}>
+                Dismiss
+              </button>
+            </p>
+          )}
+        </div>
+      )}
       <form
         className="shrink-0 border-t border-line"
         onSubmit={(e) => {
           e.preventDefault();
-          primary();
+          void primary();
         }}
       >
         <div className={`${column} p-3`}>
@@ -662,15 +756,17 @@ export default function ChatPanel({
                 !canWrite
                   ? "Archived projects are read-only."
                   : aiMode
-                    ? "Ask the AI about this review…"
-                    : "Write a message…"
+                    ? "Ask the AI, or tell it what to do…"
+                    : isProtocolThread
+                      ? "Answer here, or say e.g. “open screening”…"
+                      : `Write a message, or say what to do: “${COMMAND_EXAMPLES.join("”, “")}”…`
               }
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
-                  primary();
+                  void primary();
                 }
               }}
             />
@@ -697,7 +793,7 @@ export default function ChatPanel({
               </span>
               <button
                 className="btn py-1"
-                disabled={!canWrite || !draft.trim() || ask.isPending}
+                disabled={!canWrite || !draft.trim() || ask.isPending || interpret.isPending}
                 aria-label={aiMode ? "Ask the AI assistant" : "Send message"}
               >
                 <Icon name={aiMode ? "sparkle" : "send"} size={14} />

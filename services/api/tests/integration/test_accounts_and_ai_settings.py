@@ -155,3 +155,26 @@ def test_the_search_plan_uses_an_ai_built_expression_and_caches_it(user_client, 
     fake.expression = "exercise AND mood"
     again = c.post(f"/api/v1/projects/{pid}/search/suggest-expression", json={"tier": "open_access"}).json()
     assert again["expression"] == "exercise AND mood" and fake.calls == 2
+
+
+def test_chat_commands_return_the_view_and_the_request_to_confirm(user_client, dispatcher):
+    c, _, _ = user_client()
+    pid = approved(c, dispatcher)
+    cid = c.post(f"/api/v1/projects/{pid}/conversations", json={"title": "Commands"}).json()["id"]
+    r = c.post(
+        f"/api/v1/projects/{pid}/assist/command",
+        json={"text": "run the search", "current_view": None, "conversation_id": cid, "record": True},
+    ).json()
+    assert r["action"] == "start_search" and r["confirm"] and r["view"] == "search"
+    assert r["request"]["path"] == f"/projects/{pid}/search-runs" and r["request"]["body"]["tier"] == "open_access"
+    msgs = c.get(f"/api/v1/projects/{pid}/conversations/{cid}/messages").json()["items"]
+    assert [m["role"] for m in msgs[-2:]] == ["user", "assistant"] and msgs[-1]["payload"]["type"] == "command"
+    nav = c.post(f"/api/v1/projects/{pid}/assist/command", json={"text": "next step", "current_view": "search"}).json()
+    assert nav["action"] == "next_step" and nav["view"] == "screening" and nav["request"] is None
+    none = c.post(f"/api/v1/projects/{pid}/assist/command", json={"text": "hello there, how are you?"}).json()
+    assert none == {"action": "none"}
+    # the confirmed request is the ordinary endpoint
+    assert (
+        c.request(r["request"]["method"], "/api" + "/v1" + r["request"]["path"], json=r["request"]["body"]).status_code
+        == 202
+    )
