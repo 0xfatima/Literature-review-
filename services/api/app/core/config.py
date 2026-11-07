@@ -9,7 +9,11 @@ from pathlib import Path
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.core.settings_checks import find_invalid_document_settings, find_unsafe_settings
+from app.core.settings_checks import (
+    find_invalid_document_settings,
+    find_invalid_email_settings,
+    find_unsafe_settings,
+)
 
 # The repository-root .env (services/api/app/core/config.py -> parents[4]). Loading it by absolute path means
 # `alembic`, `uvicorn` and `celery` find it whether they are started from the repo root or from services/api.
@@ -66,11 +70,21 @@ class Settings(BaseSettings):
 
     # Scholarly search (Phase 4). Providers are called only from the worker. Contact e-mail and API key are sent to
     # the providers that ask for them (OpenAlex/Crossref polite pools) and are never stored with search records.
-    search_providers_enabled: str = "openalex,europepmc,arxiv,crossref"
+    # Keyless providers are enabled by default. CORE needs CORE_API_KEY and is skipped (with a note) without one.
+    search_providers_enabled: str = (
+        "openalex,europepmc,arxiv,crossref,semanticscholar,pubmed,doaj,openaire,plos,eric,hal,dblp,core"
+    )
     # Phase 15: endpoint overrides "provider=https://...", comma-separated (mirrors, load tests). Empty = official APIs.
     scholarly_endpoints: str = ""
     scholarly_contact_email: str | None = None
-    openalex_api_key: str | None = None
+    openalex_api_key: str | None = None  # free key at openalex.org/settings/api; keyless use is ~100 searches/day
+    semantic_scholar_api_key: str | None = None  # optional; without it requests share Semantic Scholar's public pool
+    ncbi_api_key: str | None = None  # optional PubMed key: 10 instead of 3 requests per second
+    core_api_key: str | None = None  # required for CORE (free registration at core.ac.uk/services/api)
+    # How the search expression is built when the protocol has no Boolean strategy: "auto" asks the configured AI
+    # model (the project owner's own key if they saved one) and falls back to the rule-based builder; "rules" never
+    # calls a model.
+    search_query_builder: str = "auto"  # auto | rules
     search_http_timeout_s: float = 20.0
     search_max_retries: int = 3  # per request, after the first attempt (timeouts, 429, 5xx)
     search_backoff_base_s: float = 1.0
@@ -82,7 +96,7 @@ class Settings(BaseSettings):
 
     # LLM (Phase 5). LLM_PROVIDER=none (default) disables every model call; nothing is sent anywhere.
     # The key lives only in the backend/worker environment. It is never logged, stored or returned by the API.
-    llm_provider: str = "none"  # none | gemini
+    llm_provider: str = "none"  # none | gemini | openrouter | groq | openai | anthropic
     llm_api_key: str | None = None
     llm_model: str | None = None  # no default on purpose: verify the model is available on your tier
     llm_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
@@ -90,6 +104,13 @@ class Settings(BaseSettings):
     llm_min_interval_s: float = 4.5  # request spacing shared across workers (free tiers allow ~10-30 RPM)
     llm_max_retries: int = 3
     llm_send_private_documents: bool = False  # hard default; consent gates arrive with document extraction
+    # Per-user AI settings: each user may choose a provider/model and store their own API key (encrypted at rest with
+    # USER_SECRETS_KEY, or a key derived from SESSION_SECRET when it is empty). Users only pick from the providers
+    # listed here; arbitrary base URLs are never accepted from users (that would be an SSRF hole).
+    llm_allow_user_keys: bool = True
+    llm_user_providers: str = "gemini,openrouter,groq,openai,anthropic"
+    user_secrets_key: str | None = None
+    llm_key_source: str = "server"  # set to "user" on the per-request copy when the user's own key is in use
     llm_batch_size: int = 10  # papers per relevance request (fewer requests = less quota)
     llm_max_papers_per_job: int = 300
     relevance_job_budget_s: float = 780.0
@@ -161,6 +182,27 @@ class Settings(BaseSettings):
 
     rate_limit_login_per_min: int = 10
     rate_limit_register_per_hour: int = 20
+    rate_limit_password_reset_per_hour: int = 5  # per e-mail address and per client, for reset AND verification mails
+
+    # E-mail (password reset and address verification). "console" writes the message (with its link) to the API log,
+    # which is enough for development. "smtp" sends it, e.g. Gmail: SMTP_HOST=smtp.gmail.com, SMTP_PORT=587,
+    # SMTP_USERNAME=you@gmail.com, SMTP_PASSWORD=<16-character app password>. "none" disables sending.
+    email_backend: str = "console"  # console | smtp | none
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None  # defaults to SMTP_USERNAME
+    smtp_starttls: bool = True
+    smtp_use_ssl: bool = False  # implicit TLS (port 465); STARTTLS is used otherwise when SMTP_STARTTLS=true
+    smtp_timeout_s: float = 15.0
+    # Unset = required exactly when real mail can be sent (EMAIL_BACKEND=smtp). Accounts that existed before e-mail
+    # verification was introduced were marked verified by the migration.
+    auth_require_email_verification: bool | None = None
+    email_check_dns: bool = True  # refuse addresses whose domain has no mail server (MX, or A/AAAA fallback)
+    email_dns_timeout_s: float = 3.0
+    password_reset_ttl_minutes: int = 30
+    email_verification_ttl_hours: int = 48
 
     # Security hardening (Phase 14). See docs/architecture/security.md.
     rate_limit_writes_per_min: int = 600  # state-changing /api requests per signed-in session (0 = off; dev/test only)
@@ -184,6 +226,12 @@ class Settings(BaseSettings):
         return root if root.is_absolute() else (_REPO_ROOT / root).resolve()
 
     @property
+    def email_verification_required(self) -> bool:
+        if self.auth_require_email_verification is not None:
+            return self.auth_require_email_verification
+        return self.email_backend.strip().lower() == "smtp"
+
+    @property
     def allowed_origins(self) -> list[str]:
         origins = [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
         base = self.app_base_url.strip().rstrip("/")
@@ -196,7 +244,7 @@ class Settings(BaseSettings):
         problems = find_unsafe_settings(self.model_dump())
         if problems:
             raise ValueError("Unsafe configuration: " + "; ".join(problems))
-        bad = find_invalid_document_settings(self.model_dump())
+        bad = find_invalid_document_settings(self.model_dump()) + find_invalid_email_settings(self.model_dump())
         if bad:
             raise ValueError("Invalid configuration: " + "; ".join(bad))
         return self

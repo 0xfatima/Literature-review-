@@ -62,11 +62,31 @@ See `docs/runbooks/deployment.md` (`scripts/gen-secrets.sh`, `scripts/deploy.sh`
 `scripts/backup.sh [OUT_DIR]` (database + uploaded files + checksummed manifest) and `scripts/restore.sh BACKUP_DIR --yes`
 (destructive). Retention periods, deletion semantics and the post-restore checklist: `docs/runbooks/data-retention-and-recovery.md`.
 
-## Password recovery (not available)
-Self-service password reset is **deferred** (no email infrastructure; see ADR A8). The login page says so. Operator-assisted reset:
+## Password reset and email verification
+"Forgot your password?" on the sign-in page e-mails a one-time link (30 minutes; only the newest link works; using it
+signs out every session). New accounts get a confirmation link; with `EMAIL_BACKEND=smtp` it must be opened before the
+first sign-in (existing accounts were marked verified by migration 0014). Registration refuses addresses that cannot
+receive mail: impossible Gmail names, common domain typos (`gmial.com`), throwaway inboxes and domains without a mail
+server. No provider lets a server check that a mailbox exists, so the link is the real proof. Configure SMTP in `.env`
+(Gmail works with an app password, see `.env.example`); with the default `console` backend the links are printed in
+the API log. Operator-assisted reset still works:
 ```bash
 docker compose run --rm api python -m app.cli set-password user@example.com   # prompts; revokes all sessions
 ```
+
+## AI model per user
+Settings, AI model (also in the project menu and the command palette): choose Gemini, Groq, OpenRouter, OpenAI or
+Anthropic, pick a model (free models are labelled and listed first; Gemini Flash is the default) and paste your own
+API key. The key is encrypted at rest and used for that user's requests and background jobs only; without one the
+server's `LLM_*` configuration applies. "Test connection" makes one tiny call that sends no project data.
+
+## Search sources and the AI-built query
+Sources: OpenAlex, Europe PMC, arXiv, Crossref, Semantic Scholar, PubMed, DOAJ, OpenAIRE, PLOS, ERIC, HAL, dblp and CORE
+(CORE needs `CORE_API_KEY`). **OpenAlex requires a free API key since February 2026** (`OPENALEX_API_KEY`); without it
+searches are rate-limited after a few requests. When the protocol has no Boolean search strategy, the AI model designs
+one (concepts joined with AND, synonyms with OR); it is validated against the query grammar, cached per approved
+protocol version and can be regenerated with "Ask AI for a new query". Without a model, key phrases of the objective
+are used instead of single words.
 
 ## Repository layout
 `apps/web` Next.js UI · `services/api/app` FastAPI + services + SQLAlchemy + Celery tasks (`jobs/`) · `services/api/app/db/migrations` Alembic · `infra/docker` Dockerfiles · `docs/` requirements, architecture, runbooks, per-phase reports · `scripts/` dev/CI helpers.

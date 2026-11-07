@@ -79,8 +79,8 @@ test("another user cannot open my project by URL", async ({ browser }) => {
   await expect(b.getByText("secret topic")).toHaveCount(0);
 });
 
-test("password recovery is not advertised as working", async ({ page }) => {
+test("password recovery is offered from the sign-in page", async ({ page }) => {
   await page.goto("/login");
-  await expect(page.getByText("Password recovery is not available yet")).toBeVisible();
-  await expect(page.getByRole("link", { name: /forgot/i })).toHaveCount(0);
+  await page.getByRole("link", { name: "Forgot your password?" }).click();
+  await expect(page.getByRole("heading", { name: "Reset your password" })).toBeVisible();
 });

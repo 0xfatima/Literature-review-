@@ -4,7 +4,11 @@ Order of preference (the first that yields a usable expression wins; the explana
   1. the protocol's search strategy, when the researcher wrote it as a Boolean expression;
   2. the framework's *search concepts* (population, intervention/exposure, sample, phenomenon, custom elements),
      each concept an OR group of its comma/semicolon/"or"-separated synonyms, concepts ANDed together;
-  3. content words of the objective, then of the original topic (a rough keyword query; the UI asks for review).
+  3. an expression built by the AI model from the whole protocol, when one is available (see app.search.llm_query;
+     it is validated against this module's grammar before use, and cached per approved protocol version);
+  4. key phrases of the objective, then of the original topic: the text is split at stopwords and punctuation into
+     phrases ("social media use", "adolescent depression"), at most MAX_CONCEPTS of them ANDed (a rough query; the UI
+     asks for review). Earlier versions ANDed up to six single words, which matched almost nothing relevant.
 
 Comparator, outcome and design elements are deliberately NOT added to the query: restricting a search by them
 loses relevant studies, and they are applied at screening instead (standard practice for sensitive searches).
@@ -23,13 +27,17 @@ SEARCH_CONCEPT_KEYS = frozenset({"population", "intervention", "exposure", "samp
 SCREENING_ONLY_KEYS = frozenset({"comparison", "comparator", "outcome", "design", "evaluation", "research_type"})
 MAX_KEYWORDS = 6
 MAX_PHRASE_WORDS = 4
+MAX_CONCEPTS = 3
 
 STOPWORDS = frozenset(
     """a about after against all also an and any are as at be been before between both but by can compared
     comparison does do during each effect effects for from has have how impact in into is it its of on or other
     over role than that the their them these this those through to under use used using versus vs was were what
     when where which while who whom why will with within without among amongst systematic review reviews studies
-    study literature evidence scoping meta analysis""".split()
+    study literature evidence scoping meta analysis among its may might should could would effectiveness efficacy
+    association associated relationship influence factors outcomes outcome investigate investigating examine
+    examining explore exploring assess assessing evaluate evaluating determine understanding towards toward via per
+    such based new current recent research paper papers article articles""".split()
 )
 
 # Language names -> (ISO 639-1, ISO 639-2/B). Used by providers that filter on language.
@@ -135,6 +143,35 @@ def _content_words(text: str) -> list[str]:
     return out
 
 
+def key_phrases(text: str, limit: int = MAX_CONCEPTS) -> list[str]:
+    """Runs of content words between stopwords/punctuation, longest information first, as query terms."""
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    for tok in re.findall(r"[\w\-']+|[^\w\s]", text.lower(), re.UNICODE):
+        w = tok.strip("-'")
+        if not w or not re.match(r"[\w]", w) or w in STOPWORDS or w.isdigit() or len(w) < 2:
+            if current:
+                chunks.append(current)
+            current = []
+        else:
+            current.append(w)
+    if current:
+        chunks.append(current)
+    out: list[str] = []
+    for words in chunks:
+        if len(words) == 1 and len(words[0]) <= 2:
+            continue
+        if len(words) <= MAX_PHRASE_WORDS:
+            term = words[0] if len(words) == 1 else '"' + " ".join(words) + '"'
+        else:  # long runs are rarely a fixed phrase: require their first and last content words instead
+            term = f"({words[0]} AND {words[-1]})"
+        if term not in out:
+            out.append(term)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _term(piece: str) -> str | None:
     """One synonym -> a phrase (short) or an AND of its content words (long)."""
     words = piece.split()
@@ -166,7 +203,9 @@ def _valid(expr: str) -> bool:
     return True
 
 
-def derive(content: dict[str, Any], topic: str) -> Derived:
+def derive(content: dict[str, Any], topic: str, ai: Derived | None = None) -> Derived:
+    """`ai`: an already-validated expression proposed by the AI model (source "ai"), used when the researcher wrote
+    no Boolean strategy."""
     strategy = (content.get("search_strategy") or "").strip()
     if strategy and _looks_boolean(strategy):
         try:
@@ -181,6 +220,9 @@ def derive(content: dict[str, Any], topic: str) -> Derived:
             if strategy
             else "The protocol has no Boolean search strategy."
         )
+
+    if ai is not None and ai.expression and _valid(ai.expression):
+        return Derived(ai.expression, "ai", [note, *ai.explanation])
 
     used, skipped = [], []
     concepts: list[str] = []
@@ -208,17 +250,17 @@ def derive(content: dict[str, Any], topic: str) -> Derived:
             return Derived(expr, "framework_elements", why)
 
     for source, text in (("objective", content.get("objective") or ""), ("topic", topic)):
-        words = _content_words(text)[:MAX_KEYWORDS]
-        if words:
-            expr = " AND ".join(words)
+        phrases = key_phrases(text)
+        if phrases:
+            expr = " AND ".join(phrases)
             if _valid(expr):
                 return Derived(
                     expr,
                     source,
                     [
                         note,
-                        f"Built from the content words of the {source} (a rough keyword query). Review and edit it "
-                        "before running the search.",
+                        f"Built from the key phrases of the {source} (a rough query: synonyms are missing). Review "
+                        "and edit it, or connect an AI model in Settings to have a full Boolean strategy built.",
                     ],
                 )
     return Derived("", "none", [note, "No search terms could be derived. Write the search expression yourself."])

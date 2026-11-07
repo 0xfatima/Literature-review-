@@ -6,9 +6,12 @@ import logging
 import time
 import uuid
 
-from app.core.config import get_settings
+from sqlalchemy.orm import Session
+
+from app.core.config import Settings, get_settings
 from app.core.context import new_correlation_id, reset_correlation_id, set_correlation_id
 from app.core.logging import configure_logging
+from app.db.models import Job
 from app.db.session import get_sessionmaker
 from app.jobs import fsm
 from app.jobs.celery_app import celery_app, send_task
@@ -17,6 +20,13 @@ from app.services import job_service, workflow_service
 
 log = logging.getLogger(__name__)
 MAX_PING_SLEEP_S = 60
+
+
+def _job_settings(db: Session, job: Job) -> Settings:
+    """Settings for one job: the job owner's own AI provider/model/key applied (user_llm_service.settings_for)."""
+    from app.services import user_llm_service
+
+    return user_llm_service.settings_for(db, get_settings(), job.owner_id)
 
 
 @celery_app.task(name="system.ping")
@@ -169,7 +179,7 @@ def relevance_assess(job_id: str) -> str:
             if job is None:
                 return "ignored"
             try:
-                return relevance_service.execute(db, job, get_settings())
+                return relevance_service.execute(db, job, _job_settings(db, job))
             except Exception as e:  # noqa: BLE001  end visibly; assessments committed so far are kept
                 db.rollback()
                 log.exception("relevance job failed", extra={"job_id": job_id})
@@ -232,7 +242,7 @@ def extraction_run(job_id: str) -> str:
             if job is None:
                 return "ignored"
             try:
-                return extraction_service.execute(db, job, get_settings())
+                return extraction_service.execute(db, job, _job_settings(db, job))
             except Exception as e:  # noqa: BLE001  end visibly; papers committed so far are kept
                 db.rollback()
                 log.exception("extraction job failed", extra={"job_id": job_id})
@@ -262,7 +272,7 @@ def appraisal_suggest(job_id: str) -> str:
             if job is None:
                 return "ignored"
             try:
-                return service.execute_suggestions(db, job, get_settings())
+                return service.execute_suggestions(db, job, _job_settings(db, job))
             except Exception as e:  # noqa: BLE001  end visibly; work committed so far is kept
                 db.rollback()
                 log.exception("appraisal.suggest job failed", extra={"job_id": job_id})
@@ -294,7 +304,7 @@ def synthesis_draft(job_id: str) -> str:
             if job is None:
                 return "ignored"
             try:
-                return service.execute_draft(db, job, get_settings())
+                return service.execute_draft(db, job, _job_settings(db, job))
             except Exception as e:  # noqa: BLE001  end visibly; work committed so far is kept
                 db.rollback()
                 log.exception("synthesis.draft job failed", extra={"job_id": job_id})

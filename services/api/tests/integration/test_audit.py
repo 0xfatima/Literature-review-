@@ -23,7 +23,13 @@ def test_registration_login_logout_are_audited(make_client, db):
     c.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
     c.post("/api/v1/auth/logout")
     actions = [e.action for e in events(db, entity_id=uid)]
-    assert actions == ["user.registered", "auth.login_failed", "auth.login_succeeded", "auth.logout"]
+    assert actions == [
+        "user.registered",
+        "auth.verification_sent",
+        "auth.login_failed",
+        "auth.login_succeeded",
+        "auth.logout",
+    ]
 
 
 def test_failed_login_audit_has_no_raw_email_or_password(make_client, db):

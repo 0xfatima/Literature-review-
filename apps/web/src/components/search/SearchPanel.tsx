@@ -91,6 +91,20 @@ function PlanEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, tier]);
 
+  const suggest = useMutation({
+    mutationFn: () =>
+      apiFetch<SearchPlan>(`/projects/${projectId}/search/suggest-expression`, {
+        method: "POST",
+        ...json({ tier, expression: null, providers }),
+      }),
+    onSuccess: (p) => {
+      setExpression(null);
+      setPlan(p);
+      setPlanError(null);
+    },
+    onError: (e) => setPlanError(errMessage(e, "The AI model could not suggest a query.")),
+  });
+
   const start = useMutation({
     mutationFn: () =>
       apiFetch<SearchRun>(`/projects/${projectId}/search-runs`, {
@@ -172,6 +186,15 @@ function PlanEditor({
             onClick={() => preview.mutate({ expression, providers })}
           >
             Preview queries
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!canWrite || disabled || suggest.isPending}
+            title="Ask the AI model to design the Boolean query (concepts and synonyms) from your protocol"
+            onClick={() => suggest.mutate()}
+          >
+            {suggest.isPending ? "Asking the AI…" : "Ask AI for a new query"}
           </button>
           {expression !== null && (
             <button

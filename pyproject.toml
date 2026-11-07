@@ -22,6 +22,9 @@ dependencies = [
   "argon2-cffi>=23.1",
   # Scholarly search providers (Phase 4); already pinned in requirements.lock.txt (was a dev-only dependency).
   "httpx>=0.27",
+  # Encryption at rest of users' own AI API keys (Fernet) and e-mail domain checks (MX lookup).
+  "cryptography>=50.0.2",
+  "dnspython>=2.9.1",
   # Review workflow (ADR D3). Upper bounds: checkpoint/interrupt semantics are version-sensitive (ADR R5).
   # PDF text extraction (Phase 6). Pinned below 2.0: 2.0 was released 2026-10-19 (<14 days old) and adds ML dependencies.
   # LICENCE: PyMuPDF is AGPL-3.0 or commercial; see docs/implementation-reports/phase-6.md.

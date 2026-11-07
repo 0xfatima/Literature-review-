@@ -42,7 +42,9 @@ def test_plan_is_built_from_the_approved_protocol(user_client, dispatcher):
     assert "aerobic exercise" in plan["expression"] and "usual care" not in plan["expression"]
     oa = {q["provider"]: q for q in plan["queries"]}["openalex"]
     assert oa["filters_applied"] == {"date_from": 2000, "date_to": 2025, "languages": ["en"]}
-    assert {p["key"] for p in plan["catalog"]} == {"openalex", "europepmc", "arxiv", "crossref"}
+    keys = {p["key"] for p in plan["catalog"]}
+    assert {"openalex", "europepmc", "arxiv", "crossref", "semanticscholar", "pubmed", "doaj"} <= keys
+    assert "core" not in keys  # CORE needs CORE_API_KEY
 
     edited = c.post(
         f"/api/v1/projects/{pid}/search/plan",

@@ -15,7 +15,7 @@ from app.db.models import AuthSession, Project, User
 from app.db.session import get_db
 from app.jobs.celery_app import send_task
 from app.providers.llm import LLMGateway, build_gateway
-from app.services import auth_service, project_service
+from app.services import auth_service, project_service, user_llm_service
 
 
 @lru_cache
@@ -35,11 +35,6 @@ def get_rate_limiter() -> RateLimiter:
 
 def get_dispatcher() -> Callable[[str, str], None]:
     return send_task
-
-
-def get_llm_gateway(settings: Settings = Depends(get_settings)) -> LLMGateway:
-    """The AI gateway for synchronous, short calls (the workspace assistant). Tests override this dependency."""
-    return build_gateway(settings)
 
 
 def client_key(request: Request, settings: Settings = Depends(get_settings)) -> str:
@@ -66,3 +61,15 @@ def get_owned_project(
     """THE authorization choke point for every /projects/{project_id}/... route.
     Raises 404 (not 403) for foreign projects so existence is not leaked."""
     return project_service.get(db, user, project_id)
+
+
+def get_user_settings(
+    user: User = Depends(current_user), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+) -> Settings:
+    """Settings with the signed-in user's own AI provider/model/key applied (see user_llm_service.settings_for)."""
+    return user_llm_service.settings_for(db, settings, user.id)
+
+
+def get_llm_gateway(settings: Settings = Depends(get_user_settings)) -> LLMGateway:
+    """The AI gateway for synchronous, short calls (the workspace assistant). Tests override this dependency."""
+    return build_gateway(settings)

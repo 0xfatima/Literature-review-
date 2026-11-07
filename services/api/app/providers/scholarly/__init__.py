@@ -6,17 +6,41 @@ from typing import Any
 
 from app.providers.scholarly.arxiv import ArxivSource
 from app.providers.scholarly.base import Page, ProviderQuery, ScholarlySource
+from app.providers.scholarly.core import CORESource
 from app.providers.scholarly.crossref import CrossrefSource
+from app.providers.scholarly.dblp import DBLPSource
+from app.providers.scholarly.doaj import DOAJSource
+from app.providers.scholarly.eric import ERICSource
 from app.providers.scholarly.europepmc import EuropePMCSource
+from app.providers.scholarly.hal import HALSource
+from app.providers.scholarly.openaire import OpenAIRESource
 from app.providers.scholarly.openalex import OpenAlexSource
+from app.providers.scholarly.plos import PLOSSource
+from app.providers.scholarly.pubmed import PubMedSource
+from app.providers.scholarly.semanticscholar import SemanticScholarSource
 
-ALL_KEYS = ("openalex", "europepmc", "arxiv", "crossref")
+ALL_KEYS = (
+    "openalex",
+    "europepmc",
+    "arxiv",
+    "crossref",
+    "semanticscholar",
+    "pubmed",
+    "doaj",
+    "core",
+    "openaire",
+    "plos",
+    "eric",
+    "hal",
+    "dblp",
+)
 
 __all__ = [
     "ALL_KEYS",
     "Page",
     "ProviderQuery",
     "ScholarlySource",
+    "is_default_on",
     "match_protocol_sources",
     "parse_endpoints",
     "registry",
@@ -31,7 +55,18 @@ def registry(settings: Any) -> dict[str, ScholarlySource]:
         "europepmc": EuropePMCSource(),
         "arxiv": ArxivSource(),
         "crossref": CrossrefSource(mailto=mailto),
+        "semanticscholar": SemanticScholarSource(api_key=getattr(settings, "semantic_scholar_api_key", None) or None),
+        "pubmed": PubMedSource(api_key=getattr(settings, "ncbi_api_key", None) or None, email=mailto),
+        "doaj": DOAJSource(),
+        "openaire": OpenAIRESource(),
+        "plos": PLOSSource(),
+        "eric": ERICSource(),
+        "hal": HALSource(),
+        "dblp": DBLPSource(),
     }
+    core_key = getattr(settings, "core_api_key", None)
+    if core_key:  # CORE refuses requests without a key, so it is only offered when one is configured
+        built["core"] = CORESource(api_key=core_key)
     for key, url in parse_endpoints(getattr(settings, "scholarly_endpoints", "") or "").items():
         if key in built:
             built[key].endpoint = url  # type: ignore[attr-defined]  # every adapter declares `endpoint`
@@ -61,3 +96,8 @@ def match_protocol_sources(sources: list[str], providers: dict[str, ScholarlySou
         elif key not in matched:
             matched.append(key)
     return matched, unsupported
+
+
+def is_default_on(key: str, source: ScholarlySource) -> bool:
+    """Whether a source is searched by default when the protocol names no source it supports."""
+    return bool(getattr(source, "default_on", key != "arxiv"))

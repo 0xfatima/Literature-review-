@@ -59,9 +59,51 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(254), nullable=False, unique=True)  # stored lower-cased
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="active")
+    # When the owner proved they receive mail at `email` (verification link or password reset). Accounts created
+    # before verification existed were back-filled with created_at by migration 0014.
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = now_col()
     updated_at: Mapped[datetime] = now_col()
     __table_args__ = (CheckConstraint("status in ('active','disabled')", name="status"),)
+
+    @property
+    def email_verified(self) -> bool:
+        return self.email_verified_at is not None
+
+
+AUTH_TOKEN_PURPOSES = ("verify_email", "reset_password")
+
+
+class AuthToken(Base):
+    """One-time tokens sent by e-mail (verification and password reset). Only the SHA-256 of the token is stored."""
+
+    __tablename__ = "auth_tokens"
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    purpose: Mapped[str] = mapped_column(String(24), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    email: Mapped[str] = mapped_column(String(254), nullable=False)  # the address the token was sent to
+    created_at: Mapped[datetime] = now_col()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (CheckConstraint("purpose in ('verify_email','reset_password')", name="purpose"),)
+
+
+class UserLLMSetting(Base):
+    """The AI provider/model a user chose, and optionally their own API key (Fernet-encrypted, see core.secretbox)."""
+
+    __tablename__ = "user_llm_settings"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    api_key_ciphertext: Mapped[str | None] = mapped_column(Text)
+    api_key_hint: Mapped[str | None] = mapped_column(String(16))
+    created_at: Mapped[datetime] = now_col()
+    updated_at: Mapped[datetime] = now_col()
 
 
 class AuthSession(Base):
@@ -244,6 +286,26 @@ class Message(Base):
 
 
 PROTOCOL_STATUSES = ("draft", "approved", "superseded")
+
+
+class SearchExpressionSuggestion(Base):
+    """A Boolean search expression proposed by an AI model for one approved protocol version (cached so previews do
+    not call the model every time; replaced when the user asks for a new suggestion)."""
+
+    __tablename__ = "search_expression_suggestions"
+    protocol_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "protocol_versions.id", ondelete="CASCADE", name="fk_search_expression_suggestions_protocol_version"
+        ),
+        primary_key=True,
+    )
+    expression: Mapped[str] = mapped_column(Text, nullable=False)
+    concepts: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    notes: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = now_col()
 
 
 class ProtocolVersion(Base):

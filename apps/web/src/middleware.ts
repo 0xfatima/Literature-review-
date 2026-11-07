@@ -30,4 +30,4 @@ export function loginUrl(requested: string, origin: string): URL {
   return url;
 }
 
-export const config = { matcher: ["/projects/:path*"] };
+export const config = { matcher: ["/projects/:path*", "/settings/:path*"] };

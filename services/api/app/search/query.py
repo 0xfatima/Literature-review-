@@ -281,3 +281,39 @@ def has_operator(node: Node, kind: type) -> bool:
 def to_text(node: Node) -> str:
     """Canonical text of an expression in this module's own syntax (round-trips through parse)."""
     return render(node, Dialect(supports_truncation=True, name="canonical")).text
+
+
+def concept_groups(node: Node) -> list[list[Term]]:
+    """The expression as AND-ed concept groups, each a list of its OR-ed synonyms (exclusions dropped).
+    'a AND (b OR "c d")' -> [[a], [b, "c d"]]. Anything that is not an AND at the top is one group."""
+
+    def terms(n: Node) -> list[Term]:
+        if isinstance(n, Term):
+            return [n]
+        if isinstance(n, Or):
+            out: list[Term] = []
+            for c in n.children:
+                out.extend(terms(c))
+            return out
+        if isinstance(n, And):
+            return [t for c in n.children if not isinstance(c, Not) for t in terms(c)][:1]
+        return []
+
+    if isinstance(node, And):
+        groups = [terms(c) for c in node.children if not isinstance(c, Not)]
+    else:
+        groups = [terms(node)]
+    return [g for g in groups if g]
+
+
+def core_terms(node: Node, per_group: int = 1) -> list[Term]:
+    """For keyword-only providers: the first `per_group` synonym(s) of every concept, so relevance ranking is driven
+    by every concept equally instead of by whichever concept happens to have the most synonyms."""
+    out: list[Term] = []
+    seen: set[str] = set()
+    for g in concept_groups(node):
+        for t in g[:per_group]:
+            if t.text.lower() not in seen:
+                seen.add(t.text.lower())
+                out.append(t)
+    return out

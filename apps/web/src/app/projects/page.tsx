@@ -73,6 +73,9 @@ export default function ProjectsPage() {
         </div>
         <div className="flex items-center gap-3 text-sm text-muted">
           <span aria-label="Signed in as">{me.data.email}</span>
+          <Link className="btn-secondary" href="/settings">
+            AI model
+          </Link>
           <button className="btn-secondary" onClick={() => logout.mutate()}>
             Sign out
           </button>

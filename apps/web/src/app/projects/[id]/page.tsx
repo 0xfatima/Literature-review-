@@ -331,6 +331,12 @@ function ProjectWorkspace({ id }: { id: string }) {
         hint: theme === t ? "Current" : undefined,
         run: () => setTheme(t),
       })),
+      {
+        id: "ai-settings",
+        group: "Account",
+        label: "AI model and API key",
+        run: () => router.push("/settings"),
+      },
       { id: "signout", group: "Account", label: "Sign out", run: () => logout.mutate() },
     ];
   }, [
@@ -499,6 +505,7 @@ function ProjectWorkspace({ id }: { id: string }) {
               hint: theme === t ? "✓" : undefined,
               onSelect: () => setTheme(t),
             })),
+            { label: "AI model and API key", onSelect: () => router.push("/settings") },
             { label: "Sign out", onSelect: () => logout.mutate() },
           ]}
         />

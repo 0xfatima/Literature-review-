@@ -9,10 +9,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_user, get_dispatcher, get_owned_project, get_rate_limiter
+from app.api.deps import current_user, get_dispatcher, get_owned_project, get_rate_limiter, get_user_settings
 from app.appraisal import frameworks as fwm
 from app.appraisal import service as svc
-from app.core.config import Settings, get_settings
+from app.core.config import Settings
 from app.core.errors import ValidationFailed
 from app.core.rate_limit import RateLimiter
 from app.db.models import Project, User
@@ -75,7 +75,7 @@ def suggestion_status(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
 ) -> dict[str, Any]:
     return svc.suggestion_status(db, settings, user, project)
 
@@ -86,7 +86,7 @@ def start_suggestions(
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_user_settings),
     dispatch: Callable[[str, str], None] = Depends(get_dispatcher),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:

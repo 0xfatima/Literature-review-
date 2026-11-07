@@ -49,10 +49,30 @@ def test_a_long_synonym_becomes_an_and_of_its_content_words():
 
 def test_without_concepts_the_objective_then_the_topic_give_a_keyword_query():
     d = derive.derive(content(objective="Effect of tai chi on balance"), "ignored topic")
-    assert d.source == "objective" and d.expression == "tai AND chi AND balance"
+    # phrases are kept together ("tai chi"), not split into words that are each required on their own
+    assert d.source == "objective" and d.expression == '"tai chi" AND balance'
     d = derive.derive(content(), "Yoga for chronic low back pain")
-    assert d.source == "topic" and "yoga" in d.expression
+    assert d.source == "topic" and d.expression == 'yoga AND "chronic low back pain"'
     assert any("review and edit" in n.lower() for n in d.explanation)
+
+
+def test_key_phrases_split_at_stopwords_and_drop_generic_research_words():
+    assert derive.key_phrases("Impact of social media use on adolescent depression") == [
+        '"social media"',
+        '"adolescent depression"',
+    ]
+    assert derive.key_phrases("a b c") == []
+    assert len(derive.key_phrases("alpha, beta, gamma, delta, epsilon")) == derive.MAX_CONCEPTS
+
+
+def test_an_ai_expression_is_used_when_the_protocol_has_no_boolean_strategy():
+    ai = derive.Derived('("tai chi" OR taiji) AND (balance OR falls)', "ai", ["Built by the AI model."])
+    d = derive.derive(content(objective="Effect of tai chi on balance"), "t", ai=ai)
+    assert d.source == "ai" and d.expression == ai.expression
+    strategy = derive.derive(content(search_strategy='"tai chi" AND balance'), "t", ai=ai)
+    assert strategy.source == "search_strategy"  # the researcher's own Boolean strategy always wins
+    bad = derive.Derived("(unbalanced", "ai", [])
+    assert derive.derive(content(objective="Effect of tai chi on balance"), "t", ai=bad).source == "objective"
 
 
 def test_nothing_usable_yields_an_empty_expression_with_an_explanation():

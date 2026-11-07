@@ -73,7 +73,8 @@ def test_account_log_shows_own_sign_ins_only(user_client):
     a, _, uid_a = user_client()
     b, _, _ = user_client()
     actions_a = [e["action"] for e in a.get("/api/v1/auth/me/audit-events").json()["items"]]
-    assert actions_a[:2] == ["auth.login_succeeded", "user.registered"]
+    assert actions_a[0] == "auth.login_succeeded"
+    assert "user.registered" in actions_a[:3]  # registration also records the verification e-mail
     ids_b = {e["entity_id"] for e in b.get("/api/v1/auth/me/audit-events").json()["items"]}
     assert uid_a not in ids_b
 

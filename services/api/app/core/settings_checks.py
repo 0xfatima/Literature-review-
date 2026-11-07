@@ -88,3 +88,30 @@ def find_invalid_document_settings(values: Mapping[str, Any]) -> list[str]:
             "DOCUMENT_PROCESS_TIMEOUT_S + OCR_BUDGET_S must be below JOB_DEFAULT_TIMEOUT_S (the worker's hard limit)"
         )
     return problems
+
+
+EMAIL_BACKENDS = ("console", "smtp", "none")
+SEARCH_QUERY_BUILDERS = ("auto", "rules")
+
+
+def find_invalid_email_settings(values: Mapping[str, Any]) -> list[str]:
+    """E-mail / account settings that are wrong in EVERY environment. Stdlib only."""
+    problems: list[str] = []
+    backend = str(values.get("email_backend", "console")).lower()
+    if backend not in EMAIL_BACKENDS:
+        problems.append(f"EMAIL_BACKEND must be one of {', '.join(EMAIL_BACKENDS)}")
+    if backend == "smtp":
+        if not str(values.get("smtp_host") or "").strip():
+            problems.append("EMAIL_BACKEND=smtp needs SMTP_HOST (e.g. smtp.gmail.com)")
+        if not (str(values.get("smtp_from") or "").strip() or str(values.get("smtp_username") or "").strip()):
+            problems.append("EMAIL_BACKEND=smtp needs SMTP_FROM or SMTP_USERNAME (the sender address)")
+    if values.get("auth_require_email_verification") is True and backend == "none":
+        problems.append("AUTH_REQUIRE_EMAIL_VERIFICATION=true cannot work with EMAIL_BACKEND=none (no mail is sent)")
+    if str(values.get("search_query_builder", "auto")).lower() not in SEARCH_QUERY_BUILDERS:
+        problems.append(f"SEARCH_QUERY_BUILDER must be one of {', '.join(SEARCH_QUERY_BUILDERS)}")
+    problems += [
+        f"{name.upper()} must be a positive number"
+        for name in ("password_reset_ttl_minutes", "email_verification_ttl_hours")
+        if int(values.get(name, 1) or 0) <= 0
+    ]
+    return problems

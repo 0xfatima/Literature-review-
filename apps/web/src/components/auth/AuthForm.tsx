@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import type { RegisterResult } from "@/lib/account";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import { safeNext } from "@/lib/nav";
 
@@ -14,17 +15,47 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [unverified, setUnverified] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const isRegister = mode === "register";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setNotice(null);
+    setUnverified(false);
     setBusy(true);
     try {
-      if (isRegister) await apiFetch("/auth/register", { method: "POST", ...json({ email, password }) });
+      if (isRegister) {
+        const r = await apiFetch<RegisterResult>("/auth/register", {
+          method: "POST",
+          ...json({ email, password }),
+        });
+        if (r.verification_required) {
+          setNotice(
+            `We sent a confirmation link to ${r.email}. Open it to activate your account, then sign in.`,
+          );
+          return;
+        }
+      }
       await apiFetch("/auth/login", { method: "POST", ...json({ email, password }) });
       await qc.invalidateQueries({ queryKey: ["me"] });
       router.push(next);
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "email_not_verified") setUnverified(true);
+      setError(err instanceof ApiError ? err.message : "Could not reach the server. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resend() {
+    setBusy(true);
+    try {
+      await apiFetch("/auth/verify-email/request", { method: "POST", ...json({ email }) });
+      setError(null);
+      setUnverified(false);
+      setNotice(`If ${email} has an unconfirmed account, a new confirmation link is on its way.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not reach the server. Please try again.");
     } finally {
@@ -69,15 +100,29 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          {isRegister && (
+          {isRegister ? (
             <p id="pw-hint" className="text-xs text-muted">
               At least 12 characters.
             </p>
+          ) : (
+            <Link href="/forgot-password" className="self-end text-xs">
+              Forgot your password?
+            </Link>
           )}
         </div>
         <div role="alert" aria-live="polite" className="min-h-5 text-sm text-danger">
           {error}
+          {unverified && (
+            <button type="button" className="btn-ghost ml-2" onClick={resend} disabled={busy}>
+              Send a new link
+            </button>
+          )}
         </div>
+        {notice && (
+          <p role="status" className="text-sm text-ink">
+            {notice}
+          </p>
+        )}
         <button type="submit" className="btn" disabled={busy}>
           {busy ? "Please wait…" : isRegister ? "Create account" : "Sign in"}
         </button>
@@ -99,12 +144,6 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
           </>
         )}
       </p>
-      {!isRegister && (
-        <p className="text-xs text-muted">
-          Password recovery is not available yet. If you are locked out, ask the administrator to reset your
-          password.
-        </p>
-      )}
     </main>
   );
 }
