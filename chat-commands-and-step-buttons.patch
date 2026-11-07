@@ -1,0 +1,961 @@
+diff --git a/apps/web/src/app/projects/[id]/page.tsx b/apps/web/src/app/projects/[id]/page.tsx
+index c2f3f53..bffde6d 100644
+--- a/apps/web/src/app/projects/[id]/page.tsx
++++ b/apps/web/src/app/projects/[id]/page.tsx
+@@ -522,6 +522,7 @@ function ProjectWorkspace({ id }: { id: string }) {
+         if (isViewId(t)) openView(t);
+       }}
+       conversationId={selected?.id ?? null}
++      activeView={active}
+     >
+       <ActivityProvider project={p} openView={openView} openChat={openChat} openSteps={openSteps}>
+         <IdeShell
+diff --git a/apps/web/src/components/chat/ChatPanel.tsx b/apps/web/src/components/chat/ChatPanel.tsx
+index f893fb9..cf52e15 100644
+--- a/apps/web/src/components/chat/ChatPanel.tsx
++++ b/apps/web/src/components/chat/ChatPanel.tsx
+@@ -5,6 +5,7 @@ import Icon from "@/components/ui/Icon";
+ import Menu from "@/components/ui/Menu";
+ import { PopoverPanel, usePopover } from "@/components/ui/Popover";
+ import { ApiError, apiFetch, json } from "@/lib/api";
++import { type ChatCommand, COMMAND_EXAMPLES, announceChange } from "@/lib/commands";
+ import { type PendingSend, mergeMessages, newClientId, roleLabel, settlePending } from "@/lib/chat";
+ import type {
+   Conversation,
+@@ -225,6 +226,8 @@ export default function ChatPanel({
+     onError: (e) => reportError(describeError(e, "Could not restart the workflow.")),
+   });
+   const [askAi, setAskAi] = useState(false);
++  const [command, setCommand] = useState<ChatCommand | null>(null);
++  const [notice, setNotice] = useState<string | null>(null);
+ 
+   useEffect(() => {
+     // Switching threads resets thread-local UI state; each thread's unsent draft is restored.
+@@ -353,6 +356,58 @@ export default function ChatPanel({
+     onError: (e) => reportError(errText(e)),
+   });
+ 
++  /** Messages are first checked for a command ("run the search", "go to screening", "next step"). Navigation
++   *  happens at once; actions that change data wait for the person to confirm. Anything else is sent as usual. */
++  const interpret = useMutation({
++    mutationFn: (text: string) =>
++      apiFetch<ChatCommand>(`/projects/${pid}/assist/command`, {
++        method: "POST",
++        ...json({
++          text,
++          current_view: ws?.activeView ?? null,
++          conversation_id: cid,
++          record: !isProtocolThread,
++          strict: isProtocolThread,
++          allow_ai: aiMode,
++        }),
++      }),
++  });
++  const runCommand = useMutation({
++    mutationFn: (c: ChatCommand) =>
++      apiFetch(c.request!.path, { method: c.request!.method, ...json(c.request!.body) }),
++    onSuccess: (_r, c) => {
++      setCommand(null);
++      setNotice(
++        `Done: ${c.reply?.replace(/^I can /, "").replace(/\.$/, "") ?? c.action}. Opening ${c.view}.`,
++      );
++      if (c.view) ws?.openTab(c.view);
++      announceChange(c.view);
++      qc.invalidateQueries({ queryKey: ["workspace", pid] });
++      qc.invalidateQueries({ queryKey: ["jobs"] });
++      qc.invalidateQueries({ queryKey: ["project", pid] });
++    },
++    onError: (e) => reportError(describeError(e, "That action could not be started.")),
++  });
++
++  async function dispatch(text: string): Promise<boolean> {
++    let c: ChatCommand;
++    try {
++      c = await interpret.mutateAsync(text);
++    } catch {
++      return false; // the interpreter is a convenience: on any error the message is sent normally
++    }
++    if (c.action === "none") return false;
++    setDraft("");
++    setNotice(c.reply ?? null);
++    if (!isProtocolThread) {
++      qc.invalidateQueries({ queryKey: ["messages", pid, cid] });
++      refreshThreads();
++    }
++    if (c.request) setCommand(c);
++    else if (c.view) ws?.openTab(c.view);
++    return true;
++  }
++
+   function submit() {
+     const content = draft.trim();
+     if (!content || !cid) return;
+@@ -363,10 +418,13 @@ export default function ChatPanel({
+   const column = wide ? "mx-auto w-full max-w-3xl" : "w-full";
+   const aiAvailable = assist.data?.assistant_available === true;
+   const aiMode = askAi && aiAvailable;
+-  function primary() {
+-    if (aiMode) {
+-      if (draft.trim()) ask.mutate(draft.trim());
+-    } else submit();
++  async function primary() {
++    const text = draft.trim();
++    if (!text || interpret.isPending) return;
++    setNotice(null);
++    if (await dispatch(text)) return;
++    if (aiMode) ask.mutate(text);
++    else submit();
+   }
+ 
+   if (!conversation) {
+@@ -638,11 +696,47 @@ export default function ChatPanel({
+         </div>
+       </div>
+ 
++      {(command || notice) && (
++        <div className={`${column} shrink-0 px-3 pt-2`} aria-live="polite">
++          {command ? (
++            <div className="rounded-lg border border-ok/50 bg-ok/10 p-3 text-sm">
++              <p className="text-ink">{command.reply}</p>
++              <div className="mt-2 flex gap-2">
++                <button
++                  type="button"
++                  className="inline-flex items-center gap-1.5 rounded-md bg-ok px-3 py-1.5 text-sm font-semibold text-white hover:bg-ok/90 disabled:opacity-60"
++                  disabled={!canWrite || runCommand.isPending}
++                  onClick={() => runCommand.mutate(command)}
++                >
++                  <Icon name="check" size={14} /> {runCommand.isPending ? "Starting…" : "Yes, do it"}
++                </button>
++                <button
++                  type="button"
++                  className="btn-ghost"
++                  onClick={() => {
++                    setCommand(null);
++                    setNotice(null);
++                  }}
++                >
++                  Cancel
++                </button>
++              </div>
++            </div>
++          ) : (
++            <p className="flex items-center gap-2 text-xs text-ok">
++              <Icon name="check" size={14} /> {notice}
++              <button type="button" className="ml-auto text-muted underline" onClick={() => setNotice(null)}>
++                Dismiss
++              </button>
++            </p>
++          )}
++        </div>
++      )}
+       <form
+         className="shrink-0 border-t border-line"
+         onSubmit={(e) => {
+           e.preventDefault();
+-          primary();
++          void primary();
+         }}
+       >
+         <div className={`${column} p-3`}>
+@@ -662,15 +756,17 @@ export default function ChatPanel({
+                 !canWrite
+                   ? "Archived projects are read-only."
+                   : aiMode
+-                    ? "Ask the AI about this review…"
+-                    : "Write a message…"
++                    ? "Ask the AI, or tell it what to do…"
++                    : isProtocolThread
++                      ? "Answer here, or say e.g. “open screening”…"
++                      : `Write a message, or say what to do: “${COMMAND_EXAMPLES.join("”, “")}”…`
+               }
+               value={draft}
+               onChange={(e) => setDraft(e.target.value)}
+               onKeyDown={(e) => {
+                 if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                   e.preventDefault();
+-                  primary();
++                  void primary();
+                 }
+               }}
+             />
+@@ -697,7 +793,7 @@ export default function ChatPanel({
+               </span>
+               <button
+                 className="btn py-1"
+-                disabled={!canWrite || !draft.trim() || ask.isPending}
++                disabled={!canWrite || !draft.trim() || ask.isPending || interpret.isPending}
+                 aria-label={aiMode ? "Ask the AI assistant" : "Send message"}
+               >
+                 <Icon name={aiMode ? "sparkle" : "send"} size={14} />
+diff --git a/apps/web/src/components/search/SearchPanel.tsx b/apps/web/src/components/search/SearchPanel.tsx
+index 54e7538..cc84be7 100644
+--- a/apps/web/src/components/search/SearchPanel.tsx
++++ b/apps/web/src/components/search/SearchPanel.tsx
+@@ -85,6 +85,19 @@ function PlanEditor({
+     onError: (e) => setPlanError(errMessage(e, "Could not build the search plan.")),
+   });
+ 
++  // A chat command (e.g. "suggest better keywords") changed the stored query: show the new plan.
++  useEffect(() => {
++    const onChanged = (e: Event) => {
++      if ((e as CustomEvent<{ view?: string }>).detail?.view === "search") {
++        setExpression(null);
++        preview.mutate({ expression: null, providers });
++      }
++    };
++    window.addEventListener("srs:changed", onChanged);
++    return () => window.removeEventListener("srs:changed", onChanged);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [providers]);
++
+   // First load: the plan the approved protocol produces.
+   useEffect(() => {
+     preview.mutate({ expression: null, providers: null });
+diff --git a/apps/web/src/components/workspace/StepNav.tsx b/apps/web/src/components/workspace/StepNav.tsx
+new file mode 100644
+index 0000000..c99a229
+--- /dev/null
++++ b/apps/web/src/components/workspace/StepNav.tsx
+@@ -0,0 +1,69 @@
++"use client";
++import Icon from "@/components/ui/Icon";
++import { stepNav } from "@/lib/stepnav";
++import { type ViewId, viewLabel } from "@/lib/steps";
++import { useWorkspaceOverview } from "./overview";
++
++/** Back / Next between the main steps, at the foot of every step. Next is green and enabled once the step is
++ *  complete (from stored data, never from the UI), and disabled with the reason while it is not. */
++export default function StepNav({
++  projectId,
++  view,
++  onGo,
++}: {
++  projectId: string;
++  view: ViewId;
++  onGo: (v: ViewId) => void;
++}) {
++  const overview = useWorkspaceOverview(projectId);
++  const s = stepNav(view, overview.data?.stages);
++  if (!s.prev && !s.next) return null;
++  const done = s.complete;
++  return (
++    <nav
++      aria-label="Step navigation"
++      className="sticky bottom-0 -mx-6 mt-8 flex flex-wrap items-center gap-3 border-t border-line bg-canvas/95 px-6 py-3 backdrop-blur"
++    >
++      {s.prev ? (
++        <button type="button" className="btn-secondary" onClick={() => onGo(s.prev as ViewId)}>
++          <Icon name="chevronRight" size={14} className="rotate-180" /> Back: {viewLabel(s.prev)}
++        </button>
++      ) : (
++        <span />
++      )}
++      <p
++        className={`mr-auto flex items-center gap-1.5 text-sm ${done ? "font-medium text-ok" : "text-muted"}`}
++        role="status"
++      >
++        {done ? (
++          <>
++            <Icon name="check" size={16} /> Step complete
++          </>
++        ) : (
++          <>{s.detail ? `In progress: ${s.detail}` : "Finish this step to continue."}</>
++        )}
++      </p>
++      {s.next && (
++        <button
++          type="button"
++          disabled={!done}
++          title={done ? `Continue to ${viewLabel(s.next)}` : "Complete this step first"}
++          aria-describedby={done ? undefined : `stepnav-why-${view}`}
++          className={`inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
++            done
++              ? "bg-ok text-white shadow-sm hover:bg-ok/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ok"
++              : "cursor-not-allowed bg-line text-muted"
++          }`}
++          onClick={() => onGo(s.next as ViewId)}
++        >
++          Next: {viewLabel(s.next)} <Icon name="chevronRight" size={14} />
++        </button>
++      )}
++      {!done && s.next && (
++        <span id={`stepnav-why-${view}`} className="sr-only">
++          Next is disabled until this step is complete.
++        </span>
++      )}
++    </nav>
++  );
++}
+diff --git a/apps/web/src/components/workspace/Workspace.tsx b/apps/web/src/components/workspace/Workspace.tsx
+index 9b34f63..bfc9e51 100644
+--- a/apps/web/src/components/workspace/Workspace.tsx
++++ b/apps/web/src/components/workspace/Workspace.tsx
+@@ -17,6 +17,7 @@ import PaperInspector from "@/components/papers/PaperInspector";
+ import AutopilotPanel from "@/components/pipeline/AutopilotPanel";
+ import AuditPanel from "@/components/audit/AuditPanel";
+ import Icon from "@/components/ui/Icon";
++import StepNav from "./StepNav";
+ import { type ViewId, nextAfterClose, stepOfView, viewLabel } from "@/lib/steps";
+ 
+ /** Editor area: the step views the person opened, as tabs (like editor tabs in VS Code). Opened views stay
+@@ -162,6 +163,7 @@ export default function Workspace({
+               className="px-6 py-5"
+             >
+               {views[v]()}
++              <StepNav projectId={pid} view={v} onGo={go} />
+             </div>
+           ))}
+         </div>
+diff --git a/apps/web/src/components/workspace/WorkspaceContext.tsx b/apps/web/src/components/workspace/WorkspaceContext.tsx
+index ce01bd5..5e94b1f 100644
+--- a/apps/web/src/components/workspace/WorkspaceContext.tsx
++++ b/apps/web/src/components/workspace/WorkspaceContext.tsx
+@@ -17,6 +17,8 @@ export interface WorkspaceNav {
+   inspectorTab: InspectorTab;
+   setInspectorTab: (t: InspectorTab) => void;
+   openTab: (tab: string) => void;
++  /** The step view in front (chat commands such as "next step" start from it). */
++  activeView: string | null;
+   /** The chat thread in view, so contextual actions can post their result there. */
+   conversationId: string | null;
+   /** Put text into the chat composer and focus it (e.g. "Ask a question" on an approval prompt). */
+@@ -34,6 +36,7 @@ export function WorkspaceProvider({
+   onPaper,
+   onTab,
+   conversationId,
++  activeView = null,
+   children,
+ }: {
+   paperId: string | null;
+@@ -41,6 +44,7 @@ export function WorkspaceProvider({
+   onPaper: (id: string | null, tab: InspectorTab) => void;
+   onTab: (tab: string) => void;
+   conversationId: string | null;
++  activeView?: string | null;
+   children: ReactNode;
+ }) {
+   const composer = useRef<((text: string) => void) | null>(null);
+@@ -61,6 +65,7 @@ export function WorkspaceProvider({
+       inspectorTab,
+       setInspectorTab,
+       openTab: onTab,
++      activeView,
+       conversationId,
+       composeInChat,
+       registerComposer,
+@@ -71,6 +76,7 @@ export function WorkspaceProvider({
+       inspectorTab,
+       setInspectorTab,
+       onTab,
++      activeView,
+       conversationId,
+       composeInChat,
+       registerComposer,
+diff --git a/apps/web/src/lib/commands.ts b/apps/web/src/lib/commands.ts
+new file mode 100644
+index 0000000..0020b7f
+--- /dev/null
++++ b/apps/web/src/lib/commands.ts
+@@ -0,0 +1,21 @@
++/** Chat commands ("run the search", "go to screening", "next step"), interpreted by POST /assist/command. */
++import type { ViewId } from "./steps";
++
++export interface ChatCommand {
++  action: string;
++  reply?: string;
++  view?: ViewId | null;
++  params?: Record<string, unknown>;
++  /** The ordinary API request behind the action; sent only after the user confirms. */
++  request?: { method: string; path: string; body: Record<string, unknown> } | null;
++  confirm?: boolean;
++  source?: "rules" | "ai";
++}
++
++export const COMMAND_EXAMPLES = ["run the search", "go to screening", "next step", "assess relevance"];
++
++/** Asks open panels to refresh after a chat command changed their data. */
++export function announceChange(view: string | null | undefined): void {
++  if (typeof window !== "undefined")
++    window.dispatchEvent(new CustomEvent("srs:changed", { detail: { view } }));
++}
+diff --git a/apps/web/src/lib/stepnav.test.ts b/apps/web/src/lib/stepnav.test.ts
+new file mode 100644
+index 0000000..c68e21b
+--- /dev/null
++++ b/apps/web/src/lib/stepnav.test.ts
+@@ -0,0 +1,19 @@
++import { describe, expect, it } from "vitest";
++import { stepNav } from "./stepnav";
++
++const stages = [
++  { key: "protocol", status: "done", detail: "Version 1 approved" },
++  { key: "search", status: "in_progress", detail: "Searching" },
++];
++
++describe("stepNav", () => {
++  it("enables Next only when the step is done", () => {
++    expect(stepNav("protocol", stages)).toMatchObject({ prev: null, next: "search", complete: true });
++    expect(stepNav("search", stages)).toMatchObject({ prev: "protocol", next: "screening", complete: false });
++  });
++  it("places side views on their step and ends at the report", () => {
++    expect(stepNav("papers", stages).next).toBe("screening");
++    expect(stepNav("report", stages)).toMatchObject({ next: null, complete: false });
++    expect(stepNav("audit", stages).complete).toBe(true);
++  });
++});
+diff --git a/apps/web/src/lib/stepnav.ts b/apps/web/src/lib/stepnav.ts
+new file mode 100644
+index 0000000..dc8aaf8
+--- /dev/null
++++ b/apps/web/src/lib/stepnav.ts
+@@ -0,0 +1,74 @@
++/** "Back" / "Next" between the main steps of a review, and whether the current step is complete. Pure. */
++import type { ViewId } from "./steps";
++
++/** The main path through a review; every other view belongs to one of these. */
++export const FLOW: ViewId[] = [
++  "protocol",
++  "search",
++  "screening",
++  "fulltext",
++  "extraction",
++  "appraisal",
++  "synthesis",
++  "report",
++];
++
++const FLOW_OF: Partial<Record<ViewId, ViewId>> = {
++  autopilot: "protocol",
++  papers: "search",
++  files: "fulltext",
++  tables: "extraction",
++  flow: "report",
++  audit: "report",
++};
++
++/** The backend's workspace-overview stage that decides whether a view's step is complete. */
++const STAGE_OF: Record<ViewId, string | null> = {
++  protocol: "protocol",
++  autopilot: "protocol",
++  search: "search",
++  papers: "search",
++  screening: "screening",
++  files: "full_text",
++  fulltext: "full_text",
++  extraction: "extraction",
++  tables: "extraction",
++  appraisal: "appraisal",
++  synthesis: "synthesis",
++  report: "report",
++  flow: "report",
++  audit: null,
++};
++
++export interface StageLike {
++  key: string;
++  status: string;
++  detail: string;
++}
++
++export interface StepNavState {
++  prev: ViewId | null;
++  next: ViewId | null;
++  /** The step is finished: Next is enabled (and shown in green). Views without a finish line count as complete. */
++  complete: boolean;
++  status: string | null;
++  detail: string;
++}
++
++export function flowView(view: ViewId): ViewId {
++  return FLOW_OF[view] ?? view;
++}
++
++export function stepNav(view: ViewId, stages: StageLike[] | undefined): StepNavState {
++  const base = flowView(view);
++  const i = FLOW.indexOf(base);
++  const key = STAGE_OF[view];
++  const stage = key ? stages?.find((s) => s.key === key) : undefined;
++  return {
++    prev: i > 0 ? (FLOW[i - 1] ?? null) : null,
++    next: i >= 0 && i < FLOW.length - 1 ? (FLOW[i + 1] ?? null) : null,
++    complete: key === null ? true : stage?.status === "done",
++    status: stage?.status ?? null,
++    detail: stage?.detail ?? "",
++  };
++}
+diff --git a/services/api/app/api/v1/assist.py b/services/api/app/api/v1/assist.py
+index 7a8c2f2..853b88b 100644
+--- a/services/api/app/api/v1/assist.py
++++ b/services/api/app/api/v1/assist.py
+@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
+ from sqlalchemy.orm import Session
+ 
+ from app.api.deps import current_user, get_llm_gateway, get_owned_project, get_rate_limiter, get_user_settings
++from app.assist import commands
+ from app.assist import service as svc
+ from app.core.config import Settings
+ from app.core.errors import ValidationFailed
+@@ -86,3 +87,19 @@ def ask_assistant(
+     limiter: RateLimiter = Depends(get_rate_limiter),
+ ) -> dict[str, Any]:
+     return svc.ask(db, settings, gw, limiter, project, user, conversation_id, body)
++
++
++@router.post("/assist/command")
++def interpret_command(
++    body: dict[str, Any],
++    project: Project = Depends(get_owned_project),
++    user: User = Depends(current_user),
++    db: Session = Depends(get_db),
++    settings: Settings = Depends(get_user_settings),
++    gw: LLMGateway = Depends(get_llm_gateway),
++    limiter: RateLimiter = Depends(get_rate_limiter),
++) -> dict[str, Any]:
++    """Interpret a chat message as an application action ("run the search", "go to screening", "next step").
++    Returns the view to open and, for actions that change data, the API request the browser sends after the user
++    confirms. Executes nothing itself."""
++    return commands.interpret(db, settings, gw, limiter, project, user, body)
+diff --git a/services/api/app/assist/commands.py b/services/api/app/assist/commands.py
+new file mode 100644
+index 0000000..d1f251e
+--- /dev/null
++++ b/services/api/app/assist/commands.py
+@@ -0,0 +1,339 @@
++"""Chat commands: turn "run the search" / "go to screening" / "next step" into an application action.
++
++Two interpreters, same output:
++  * rules (always available, no AI): imperative phrases matched against a fixed vocabulary;
++  * the AI model (only when the user is in "Ask AI" mode, the rules found nothing and a model is configured): it may
++    only choose one of the actions listed below; anything else is discarded.
++
++Nothing is executed here. The result names the view to open and, for actions that change data or start background
++work, the existing API request to send (method, path, body), which the browser sends only after the user confirms.
++So every action goes through the same endpoint, validation, rate limits and audit trail as the button it replaces.
++"""
++
++from __future__ import annotations
++
++import re
++import uuid
++from dataclasses import dataclass, field
++from typing import Any
++
++from sqlalchemy.orm import Session
++
++from app.core.config import Settings
++from app.core.errors import ValidationFailed
++from app.core.rate_limit import RateLimiter
++from app.core.untrusted import fence
++from app.db.models import Project, User
++from app.providers.llm import LLMError, LLMGateway
++from app.services import audit_service, conversation_service
++
++MAX_TEXT = 500
++
++# view id -> (label, words that name it). Order matters: more specific names first.
++VIEWS: dict[str, tuple[str, tuple[str, ...]]] = {
++    "autopilot": ("Automation", ("automation", "autopilot", "auto pilot", "pipeline")),
++    "extraction": ("Extraction form", ("extraction form", "extraction schema", "extraction fields", "extraction")),
++    "tables": ("Evidence table", ("evidence table", "evidence tables", "data table", "extracted data", "tables")),
++    "fulltext": ("Full text", ("full text screening", "full-text screening", "full text", "full-text", "fulltext")),
++    "files": ("Files", ("files", "pdfs", "pdf", "documents", "uploads", "upload")),
++    "flow": ("PRISMA flow", ("prisma flow", "prisma diagram", "prisma", "flow diagram", "flow")),
++    "audit": ("Audit log", ("audit log", "audit trail", "audit", "history", "activity log")),
++    "protocol": ("Protocol", ("protocol", "research question", "criteria", "eligibility", "objective")),
++    "search": ("Search", ("search", "searching", "search query", "search expression")),
++    "papers": ("Papers", ("papers", "records", "articles", "results", "references", "library")),
++    "screening": ("Screening", ("screening", "screen", "title and abstract", "abstract screening")),
++    "appraisal": ("Appraisal", ("appraisal", "risk of bias", "quality assessment", "critical appraisal", "quality")),
++    "synthesis": ("Synthesis", ("synthesis", "synthesise", "synthesize", "findings")),
++    "report": ("Report", ("report", "manuscript", "write-up", "write up", "export")),
++}
++# The main path the "Next step" command and buttons follow.
++FLOW = ["protocol", "search", "screening", "fulltext", "extraction", "appraisal", "synthesis", "report"]
++FLOW_OF = {
++    "autopilot": "protocol",
++    "papers": "search",
++    "files": "fulltext",
++    "tables": "extraction",
++    "flow": "report",
++    "audit": "report",
++}
++
++ACTIONS = (
++    "open_view",
++    "next_step",
++    "previous_step",
++    "start_search",
++    "suggest_search_query",
++    "assess_relevance",
++    "run_extraction",
++    "suggest_appraisal",
++    "draft_synthesis",
++    "generate_report",
++    "none",
++)
++
++NAV = r"(?:open|go(?: back)? to|goto|show(?: me)?|take me to|navigate to|switch to|bring up|view|display|see|jump to)"
++RUN = r"(?:run|start|begin|launch|do|perform|execute|kick off|trigger|redo|re-run|rerun)"
++
++
++@dataclass
++class Command:
++    action: str
++    reply: str
++    view: str | None = None
++    params: dict[str, Any] = field(default_factory=dict)
++    request: dict[str, Any] | None = None  # {"method", "path", "body"}; sent by the browser after confirmation
++    source: str = "rules"
++
++    def as_dict(self) -> dict[str, Any]:
++        return {
++            "action": self.action,
++            "reply": self.reply,
++            "view": self.view,
++            "params": self.params,
++            "request": self.request,
++            "confirm": self.request is not None,
++            "source": self.source,
++        }
++
++
++def _norm(text: str) -> str:
++    t = text.lower().replace("’", "'")
++    t = re.sub(r"[^\w\s'-]", " ", t)
++    t = re.sub(
++        r"\b(please|kindly|can you|could you|would you|i want to|i'd like to|i would like to|let's|lets)\b", " ", t
++    )
++    return " ".join(t.split())
++
++
++def find_view(t: str) -> str | None:
++    best: tuple[int, str] | None = None
++    for view, (_, words) in VIEWS.items():
++        for w in words:
++            m = re.search(r"\b" + re.escape(w) + r"\b", t)
++            if m and (best is None or len(w) > best[0]):
++                best = (len(w), view)
++    return best[1] if best else None
++
++
++def step_from(view: str | None, delta: int) -> str | None:
++    base = FLOW_OF.get(view or "", view)
++    if base not in FLOW:
++        return FLOW[0] if delta > 0 else None
++    i = FLOW.index(base) + delta
++    return FLOW[i] if 0 <= i < len(FLOW) else None
++
++
++def interpret_rules(text: str, current_view: str | None, *, strict: bool = False) -> Command | None:
++    """`strict` (protocol thread, where plain messages are answers): only unmistakable commands are recognised."""
++    t = _norm(text)
++    if not t:
++        return None
++    words = t.split()
++    if re.fullmatch(
++        r"(go |move |continue |proceed )?(to )?(the )?next( step)?|next step|continue to the next step", t
++    ) or (not strict and re.search(r"\b(next step|move on|go next|proceed to the next)\b", t)):
++        return Command("next_step", "")
++    if re.fullmatch(r"(go )?back|(go |back )?(to )?(the )?previous( step)?|previous step", t) or (
++        not strict and re.search(r"\b(previous step|step back|go back a step)\b", t)
++    ):
++        return Command("previous_step", "")
++    if strict and (
++        not re.match(rf"^({NAV}|{RUN}|next|previous|suggest|generate|assess|draft|create)\b", t)
++        or re.match(r"^open[- ]access", t)
++    ):
++        return None
++    if len(words) > 30:
++        return None
++
++    has_run = re.search(rf"\b{RUN}\b", t) is not None
++    if re.search(r"\b(suggest|generate|build|improve|create|make|design|write|better|refine)\b", t) and re.search(
++        r"\b(query|keywords?|search terms?|search expression|search string|boolean)\b", t
++    ):
++        return Command("suggest_search_query", "")
++    if (has_run and re.search(r"\b(search|searches|literature search)\b", t)) or re.search(
++        r"\b(search for papers|find (the )?(papers|articles|studies|literature)|look for papers"
++        r"|search the literature)\b",
++        t,
++    ):
++        additional = re.search(r"\b(additional|more sources|crossref|dblp|other sources|extra sources)\b", t)
++        return Command("start_search", "", params={"tier": "additional" if additional else "open_access"})
++    if re.search(r"\b(relevance|rank|prioriti[sz]e|ai screen|screen with ai|pre-?screen)\b", t) and (
++        has_run or re.search(r"\b(assess|check|score|rank|prioriti[sz]e|screen)\b", t)
++    ):
++        return Command("assess_relevance", "")
++    if re.search(r"\bextract(ion)?\b", t) and (has_run or re.search(r"\bextract (the )?(data|evidence|values)\b", t)):
++        if not re.search(rf"\b{NAV}\b", t) or has_run:
++            return Command("run_extraction", "")
++    if (
++        re.search(r"\b(appraise|appraisal|risk of bias|quality assessment)\b", t)
++        and (has_run or re.search(r"\b(suggest|appraise|assess)\b", t))
++        and not re.search(rf"^{NAV}\b", t)
++    ):
++        return Command("suggest_appraisal", "")
++    if (
++        re.search(r"\b(synthes[iz]e|synthesis|combine (the )?findings)\b", t)
++        and (has_run or re.search(r"\b(draft|write|create|generate|synthes[iz]e|combine)\b", t))
++        and not re.search(rf"^{NAV}\b", t)
++    ):
++        return Command("draft_synthesis", "")
++    if re.search(r"\breport\b", t) and re.search(r"\b(generate|create|draft|write|build|make|produce)\b", t):
++        return Command("generate_report", "")
++    view = find_view(t)
++    if view and (re.search(rf"\b{NAV}\b", t) or re.search(r"\b(where is|where are|tab|page|panel|section)\b", t)):
++        return Command("open_view", "", view=view)
++    if view and len(words) <= 3 and not strict:  # a bare name: "screening", "the report"
++        return Command("open_view", "", view=view)
++    return None
++
++
++AI_SYSTEM = (
++    "You map a user's chat message inside a systematic-review application to ONE application action. Choose "
++    "action 'none' when the message is a question, a comment, or anything that is not clearly a request to do one "
++    "of the listed actions. Never invent actions. Views: " + ", ".join(VIEWS) + ". Actions: open_view (needs view), "
++    "next_step, previous_step, start_search (tier open_access or additional), suggest_search_query, assess_relevance "
++    "(AI relevance screening of the found papers), run_extraction, suggest_appraisal, draft_synthesis, "
++    "generate_report, none."
++)
++AI_SCHEMA: dict[str, Any] = {
++    "type": "OBJECT",
++    "properties": {
++        "action": {"type": "STRING", "enum": list(ACTIONS)},
++        "view": {"type": "STRING"},
++        "tier": {"type": "STRING"},
++    },
++    "required": ["action"],
++}
++
++
++def interpret_ai(gw: LLMGateway, text: str) -> Command | None:
++    try:
++        res = gw.generate_json(
++            data_class="public_metadata",
++            system=AI_SYSTEM,
++            prompt="User message:\n" + fence(text, "message"),
++            schema=AI_SCHEMA,
++            temperature=0.0,
++            max_output_tokens=200,
++        )
++    except LLMError:
++        return None
++    data = res.data or {}
++    action = data.get("action")
++    if action not in ACTIONS or action == "none":
++        return None
++    view = data.get("view") if data.get("view") in VIEWS else None
++    if action == "open_view" and view is None:
++        return None
++    params = {"tier": "additional"} if action == "start_search" and data.get("tier") == "additional" else {}
++    if action == "start_search":
++        params.setdefault("tier", "open_access")
++    return Command(str(action), "", view=view, params=params, source="ai")
++
++
++def resolve(db: Session, project: Project, cmd: Command, current_view: str | None) -> Command:
++    """Fill in the view to open, the confirmation text and the API request for one recognised action."""
++    from app.extraction import schema_service
++
++    pid = project.id
++    base = f"/projects/{pid}"
++    a = cmd.action
++    if a in ("next_step", "previous_step"):
++        target = step_from(current_view, 1 if a == "next_step" else -1)
++        if target is None:
++            cmd.reply = "This is already the first step." if a == "previous_step" else "This is the last step."
++            return cmd
++        cmd.view = target
++        cmd.reply = f"Opening {VIEWS[target][0]}."
++    elif a == "open_view" and cmd.view:
++        cmd.reply = f"Opening {VIEWS[cmd.view][0]}."
++    elif a == "start_search":
++        tier = cmd.params.get("tier", "open_access")
++        cmd.view = "search"
++        label = "the additional sources" if tier == "additional" else "the open-access sources"
++        cmd.reply = f"I can start a search of {label} with the query built from your approved protocol."
++        cmd.request = {
++            "method": "POST",
++            "path": f"{base}/search-runs",
++            "body": {"tier": tier, "expression": None, "providers": None},
++        }
++    elif a == "suggest_search_query":
++        cmd.view = "search"
++        cmd.reply = "I can ask the AI model to design a new Boolean search query from your protocol."
++        cmd.request = {"method": "POST", "path": f"{base}/search/suggest-expression", "body": {"tier": "open_access"}}
++    elif a == "assess_relevance":
++        cmd.view = "screening"
++        cmd.reply = "I can assess the relevance of the papers that are waiting for screening (advisory only)."
++        cmd.request = {"method": "POST", "path": f"{base}/screening/relevance", "body": {"use_llm": True}}
++    elif a == "run_extraction":
++        cmd.view = "tables"
++        schema = schema_service.current_schema(db, project)
++        if schema is None:
++            cmd.view = "extraction"
++            cmd.reply = "There is no approved extraction form yet. Opening the form so you can review and approve it."
++        else:
++            cmd.reply = "I can extract the evidence from the included papers with the approved extraction form."
++            cmd.request = {"method": "POST", "path": f"{base}/extraction/schemas/{schema.id}/runs", "body": {}}
++    elif a == "suggest_appraisal":
++        cmd.view = "appraisal"
++        cmd.reply = "I can draft risk-of-bias suggestions for the included studies (you review every judgement)."
++        cmd.request = {"method": "POST", "path": f"{base}/appraisal/suggestions", "body": {}}
++    elif a == "draft_synthesis":
++        cmd.view = "synthesis"
++        schema = schema_service.current_schema(db, project)
++        cmd.reply = "I can draft a synthesis of the extracted evidence."
++        body: dict[str, Any] = {"schema_id": str(schema.id)} if schema is not None else {}
++        cmd.request = {"method": "POST", "path": f"{base}/synthesis/drafts", "body": body}
++    elif a == "generate_report":
++        cmd.view = "report"
++        cmd.reply = "I can generate a new draft of the review report from the current data."
++        cmd.request = {"method": "POST", "path": f"{base}/reports", "body": {}}
++    return cmd
++
++
++def interpret(
++    db: Session,
++    settings: Settings,
++    gw: LLMGateway | None,
++    limiter: RateLimiter,
++    project: Project,
++    user: User,
++    body: dict[str, Any],
++) -> dict[str, Any]:
++    text = str(body.get("text") or "").strip()
++    if not text or len(text) > 20000:
++        raise ValidationFailed("Send a message to interpret.", details=[{"field": "text"}])
++    current = body.get("current_view") if body.get("current_view") in VIEWS else None
++    strict = bool(body.get("strict"))
++    cmd = interpret_rules(text[:MAX_TEXT], current, strict=strict) if len(text) <= MAX_TEXT else None
++    if cmd is None and body.get("allow_ai") and not strict and gw is not None and gw.available:
++        allowed, _ = limiter.hit(f"assistant:{user.id}", settings.rate_limit_assistant_per_hour, 3600)
++        if allowed:
++            cmd = interpret_ai(gw, text[:MAX_TEXT])
++    if cmd is None:
++        return {"action": "none"}
++    cmd = resolve(db, project, cmd, current)
++    cid = body.get("conversation_id")
++    if body.get("record") and cid:
++        conv_id = uuid.UUID(str(cid))
++        conversation_service.get(db, project, conv_id)
++        conversation_service.post_user_message(db, user, project, conv_id, content=text, client_message_id=None)
++        conversation_service.append_workflow_message(
++            db,
++            conv_id,
++            role="assistant",
++            author_id=None,
++            content=cmd.reply + (" Confirm below to go ahead." if cmd.request else ""),
++            payload={"type": "command", "action": cmd.action, "view": cmd.view, "source": cmd.source},
++            client_message_id=uuid.uuid4(),
++        )
++        audit_service.record(
++            db,
++            action="assistant.command",
++            entity_type="project",
++            entity_id=project.id,
++            actor_id=user.id,
++            project_id=project.id,
++            after={"action": cmd.action, "view": cmd.view, "source": cmd.source},
++        )
++        db.commit()
++    return cmd.as_dict()
+diff --git a/services/api/app/audit/catalog.py b/services/api/app/audit/catalog.py
+index b040a79..ef6a799 100644
+--- a/services/api/app/audit/catalog.py
++++ b/services/api/app/audit/catalog.py
+@@ -64,6 +64,7 @@ LABELS: dict[str, str] = {
+     "user.llm_settings_updated": "Personal AI settings changed",
+     "user.llm_settings_removed": "Personal AI settings removed",
+     "search.expression_suggested": "AI search expression suggested",
++    "assistant.command": "Chat command interpreted",
+     "protocol.approved": "Protocol approved",
+     "protocol.revision_started": "Protocol revision started",
+     "protocol.draft_updated": "Protocol draft edited",
+diff --git a/services/api/tests/integration/test_accounts_and_ai_settings.py b/services/api/tests/integration/test_accounts_and_ai_settings.py
+index d5a340a..1e32fe7 100644
+--- a/services/api/tests/integration/test_accounts_and_ai_settings.py
++++ b/services/api/tests/integration/test_accounts_and_ai_settings.py
+@@ -155,3 +155,26 @@ def test_the_search_plan_uses_an_ai_built_expression_and_caches_it(user_client,
+     fake.expression = "exercise AND mood"
+     again = c.post(f"/api/v1/projects/{pid}/search/suggest-expression", json={"tier": "open_access"}).json()
+     assert again["expression"] == "exercise AND mood" and fake.calls == 2
++
++
++def test_chat_commands_return_the_view_and_the_request_to_confirm(user_client, dispatcher):
++    c, _, _ = user_client()
++    pid = approved(c, dispatcher)
++    cid = c.post(f"/api/v1/projects/{pid}/conversations", json={"title": "Commands"}).json()["id"]
++    r = c.post(
++        f"/api/v1/projects/{pid}/assist/command",
++        json={"text": "run the search", "current_view": None, "conversation_id": cid, "record": True},
++    ).json()
++    assert r["action"] == "start_search" and r["confirm"] and r["view"] == "search"
++    assert r["request"]["path"] == f"/projects/{pid}/search-runs" and r["request"]["body"]["tier"] == "open_access"
++    msgs = c.get(f"/api/v1/projects/{pid}/conversations/{cid}/messages").json()["items"]
++    assert [m["role"] for m in msgs[-2:]] == ["user", "assistant"] and msgs[-1]["payload"]["type"] == "command"
++    nav = c.post(f"/api/v1/projects/{pid}/assist/command", json={"text": "next step", "current_view": "search"}).json()
++    assert nav["action"] == "next_step" and nav["view"] == "screening" and nav["request"] is None
++    none = c.post(f"/api/v1/projects/{pid}/assist/command", json={"text": "hello there, how are you?"}).json()
++    assert none == {"action": "none"}
++    # the confirmed request is the ordinary endpoint
++    assert (
++        c.request(r["request"]["method"], "/api" + "/v1" + r["request"]["path"], json=r["request"]["body"]).status_code
++        == 202
++    )
+diff --git a/services/api/tests/unit/test_chat_commands.py b/services/api/tests/unit/test_chat_commands.py
+new file mode 100644
+index 0000000..e539c19
+--- /dev/null
++++ b/services/api/tests/unit/test_chat_commands.py
+@@ -0,0 +1,50 @@
++import pytest
++
++from app.assist.commands import interpret_rules, step_from
++
++
++@pytest.mark.parametrize(
++    ("text", "action", "view"),
++    [
++        ("run the search", "start_search", None),
++        ("Please go to screening", "open_view", "screening"),
++        ("open the evidence table", "open_view", "tables"),
++        ("take me to the PRISMA flow", "open_view", "flow"),
++        ("open extraction form", "open_view", "extraction"),
++        ("next step", "next_step", None),
++        ("go back", "previous_step", None),
++        ("suggest better keywords for the search", "suggest_search_query", None),
++        ("assess relevance of the papers", "assess_relevance", None),
++        ("extract the data", "run_extraction", None),
++        ("appraise the studies", "suggest_appraisal", None),
++        ("draft the synthesis", "draft_synthesis", None),
++        ("generate the report", "generate_report", None),
++        ("screening", "open_view", "screening"),
++    ],
++)
++def test_rules_recognise_commands(text, action, view):
++    cmd = interpret_rules(text, "search")
++    assert cmd is not None and cmd.action == action and cmd.view == view
++
++
++def test_search_tier_and_non_commands():
++    assert interpret_rules("start a search of additional sources", None).params == {"tier": "additional"}
++    for text in (
++        "what is a systematic review?",
++        "to find out if deep learning works in practice",
++        "Use Other / custom.",
++    ):
++        assert interpret_rules(text, None) is None
++
++
++def test_strict_mode_never_swallows_protocol_answers():
++    for answer in ("Open-access sources", "Screening only", "deep learning in radiology", "Open access search only"):
++        assert interpret_rules(answer, None, strict=True) is None
++    assert interpret_rules("open screening", None, strict=True).action == "open_view"
++    assert interpret_rules("next step", None, strict=True).action == "next_step"
++
++
++def test_step_order():
++    assert step_from("protocol", 1) == "search"
++    assert step_from("papers", 1) == "screening"  # a view belongs to its step
++    assert step_from("report", 1) is None and step_from("protocol", -1) is None

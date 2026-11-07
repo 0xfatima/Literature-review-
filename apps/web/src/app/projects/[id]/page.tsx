@@ -522,6 +522,7 @@ function ProjectWorkspace({ id }: { id: string }) {
         if (isViewId(t)) openView(t);
       }}
       conversationId={selected?.id ?? null}
+      activeView={active}
     >
       <ActivityProvider project={p} openView={openView} openChat={openChat} openSteps={openSteps}>
         <IdeShell

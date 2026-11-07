@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import current_user, get_llm_gateway, get_owned_project, get_rate_limiter, get_user_settings
+from app.assist import commands
 from app.assist import service as svc
 from app.core.config import Settings
 from app.core.errors import ValidationFailed
@@ -86,3 +87,19 @@ def ask_assistant(
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, Any]:
     return svc.ask(db, settings, gw, limiter, project, user, conversation_id, body)
+
+
+@router.post("/assist/command")
+def interpret_command(
+    body: dict[str, Any],
+    project: Project = Depends(get_owned_project),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_user_settings),
+    gw: LLMGateway = Depends(get_llm_gateway),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> dict[str, Any]:
+    """Interpret a chat message as an application action ("run the search", "go to screening", "next step").
+    Returns the view to open and, for actions that change data, the API request the browser sends after the user
+    confirms. Executes nothing itself."""
+    return commands.interpret(db, settings, gw, limiter, project, user, body)
