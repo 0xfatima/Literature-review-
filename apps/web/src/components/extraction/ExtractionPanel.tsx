@@ -498,7 +498,7 @@ export default function ExtractionPanel({ projectId, canWrite }: { projectId: st
                     </button>
                     <button
                       type="button"
-                      className="btn"
+                      className="btn-accept"
                       disabled={approve.isPending}
                       onClick={() => approve.mutate(draft)}
                     >

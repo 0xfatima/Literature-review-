@@ -18,6 +18,7 @@ import type {
 } from "@/lib/types";
 import { useStatus } from "@/components/status/StatusContext";
 import QuestionCard from "@/components/protocol/QuestionCard";
+import NextStepCard from "@/components/chat/NextStepCard";
 import { useProtocol, useRefreshReview, useWorkflow } from "@/components/protocol/hooks";
 import { isBusy } from "@/lib/protocol";
 import { describeError, loadDraft, saveDraft } from "@/lib/workspace";
@@ -225,7 +226,9 @@ export default function ChatPanel({
     onSettled: refreshReview,
     onError: (e) => reportError(describeError(e, "Could not restart the workflow.")),
   });
-  const [askAi, setAskAi] = useState(false);
+  // null = not chosen yet: on in free threads when an assistant exists (so a question gets an answer), off in the
+  // guided setup thread, where the cards are the conversation.
+  const [askAi, setAskAi] = useState<boolean | null>(null);
   const [command, setCommand] = useState<ChatCommand | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -237,6 +240,8 @@ export default function ChatPanel({
     setHasOlderLoaded(null);
     setRenaming(null);
     setConfirmDelete(false);
+    setAskAi(null);
+    setNotice(null);
   }, [cid]);
 
   const page = useQuery({
@@ -317,6 +322,12 @@ export default function ChatPanel({
       setPending((list) => settlePending(list, [res.message]));
       setSave({ kind: "saved", at: new Date() });
       refreshThreads();
+      if (!isProtocolThread)
+        setNotice(
+          aiAvailable
+            ? "Saved as a note. Switch on “Ask AI” below to get an answer."
+            : "Saved as a note. No AI assistant is connected, so nothing will reply here.",
+        );
     },
     onError: (e, p) => {
       const message = errText(e);
@@ -417,7 +428,7 @@ export default function ChatPanel({
 
   const column = wide ? "mx-auto w-full max-w-3xl" : "w-full";
   const aiAvailable = assist.data?.assistant_available === true;
-  const aiMode = askAi && aiAvailable;
+  const aiMode = (askAi ?? !isProtocolThread) && aiAvailable;
   async function primary() {
     const text = draft.trim();
     if (!text || interpret.isPending) return;
@@ -445,13 +456,16 @@ export default function ChatPanel({
           </div>
         )}
         <div className={`${column} flex flex-1 flex-col items-start justify-center gap-3 p-6`}>
-          <h2 className="text-base font-semibold">Start a conversation</h2>
+          <h2 className="text-base font-semibold">
+            {run === null ? "Set up your review" : "Start a conversation"}
+          </h2>
           <p className="max-w-prose text-muted">
-            The chat is where this review is set up: the protocol questions are asked here one at a time.
-            Threads keep each conversation, and you can come back to them at any time.
+            {run === null
+              ? "I'll ask you a few short questions about your review (objective, framework, questions, scope and criteria), one at a time. Your answers are saved as you go."
+              : "Threads keep each conversation, and you can come back to them at any time."}
           </p>
           <button type="button" className="btn" onClick={onNewThread} disabled={!canWrite || creating}>
-            Start a thread
+            {creating ? "Starting…" : run === null ? "Start setting up the review" : "Start a thread"}
           </button>
           {!canWrite && (
             <p className="text-xs text-muted">This project is archived. Unarchive it to start a thread.</p>
@@ -672,10 +686,38 @@ export default function ChatPanel({
                 }
               />
             ))}
+            {(ask.isPending || interpret.isPending) && (
+              <li
+                className="mr-4 flex items-center gap-2 rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-muted"
+                aria-live="polite"
+              >
+                <span className="flex gap-1" aria-hidden>
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-mark" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-mark [animation-delay:150ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-mark [animation-delay:300ms]" />
+                </span>
+                {ask.isPending ? "The assistant is thinking…" : "Reading your message…"}
+              </li>
+            )}
+            {isProtocolThread && run && !isBusy(run) && run.status !== "awaiting_input" && protocol.data && (
+              <NextStepCard
+                projectId={pid}
+                canWrite={canWrite}
+                protocol={protocol.data}
+                openTab={(v) => ws?.openTab(v)}
+              />
+            )}
           </ol>
           {isProtocolThread && isBusy(run) && (
-            <p className="mt-2 flex items-center gap-2 text-xs text-muted" aria-live="polite">
-              <Icon name="clock" size={14} /> Preparing the next question…
+            <p
+              className="mt-2 flex items-center gap-2 rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-muted"
+              aria-live="polite"
+            >
+              <span
+                aria-hidden
+                className="spin inline-block h-3.5 w-3.5 rounded-full border-2 border-mark border-t-transparent"
+              />
+              Preparing the next question…
             </p>
           )}
           {failed && (
@@ -780,7 +822,7 @@ export default function ChatPanel({
                   className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-1 text-xs ${
                     aiMode ? "bg-mark/15 text-ink" : "text-muted hover:bg-canvas hover:text-ink"
                   }`}
-                  onClick={() => setAskAi((v) => !v)}
+                  onClick={() => setAskAi(!aiMode)}
                 >
                   <Icon name="sparkle" size={14} className={aiMode ? "text-mark" : ""} />
                   Ask AI

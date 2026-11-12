@@ -125,6 +125,7 @@ def record_bulk_decision(
             decision=body.decision,
             reason_code=body.reason_code,
             note=body.note,
+            all_matching=body.all_matching.model_dump() if body.all_matching else None,
         )
     )
 
@@ -160,5 +161,14 @@ def start_relevance(
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> Job:
     return relevance_service.start(
-        db, settings, dispatch, limiter, user, project, use_llm=body.use_llm, force=body.force, paper_ids=body.paper_ids
+        db,
+        settings,
+        dispatch,
+        limiter,
+        user,
+        project,
+        use_llm=body.use_llm,
+        force=body.force,
+        paper_ids=body.paper_ids,
+        auto_decide=body.auto_decide,
     )

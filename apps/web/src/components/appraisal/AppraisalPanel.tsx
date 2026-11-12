@@ -299,7 +299,7 @@ function Editor({
           {record && record.status !== "approved" && (
             <button
               type="button"
-              className="btn"
+              className="btn-accept"
               onClick={() => approve.mutate()}
               disabled={approve.isPending || undecided.length > 0}
               title={undecided.length ? `Still to judge: ${undecided.join(", ")}` : "Approve this appraisal"}

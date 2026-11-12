@@ -216,7 +216,7 @@ export default function QuestionCard({
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <button
               type="button"
-              className="btn"
+              className="btn-accept"
               disabled={busy || !draft.can_approve}
               onClick={() => send("approve")}
             >

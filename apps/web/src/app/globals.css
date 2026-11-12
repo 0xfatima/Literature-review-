@@ -19,6 +19,8 @@
   --danger: 207 34 46; /* #CF222E exclude, errors */
   --ok: 26 127 55; /* #1A7F37 include, done */
   --warn: 154 103 0; /* #9A6700 maybe */
+  --olive: 95 107 22; /* #5F6B16 uncertain: white text on it 5.9:1 */
+  --on-status: 255 255 255; /* text on filled ok / danger / olive buttons */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -36,6 +38,8 @@
     --danger: 248 81 73; /* #F85149 */
     --ok: 63 185 80; /* #3FB950 */
     --warn: 210 153 34; /* #D29922 */
+    --olive: 181 194 90; /* #B5C25A */
+    --on-status: 24 24 24;
   }
 }
 :root[data-theme="dark"] {
@@ -52,6 +56,8 @@
   --danger: 248 81 73;
   --ok: 63 185 80;
   --warn: 210 153 34;
+  --olive: 181 194 90;
+  --on-status: 24 24 24;
 }
 
 html,
@@ -91,6 +97,51 @@ a {
   }
   .btn-danger {
     @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-danger/60 px-3 py-1.5 text-sm text-danger hover:bg-danger/10;
+  }
+  /* Decision colours, used the same way everywhere: green = include / accept / approve, red = exclude /
+   * reject, olive = uncertain. Filled = the primary action or the current choice; soft = a choice not yet made. */
+  .btn-accept,
+  .btn-reject,
+  .btn-uncertain {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold text-onstatus hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-accept {
+    @apply bg-ok;
+  }
+  .btn-reject {
+    @apply bg-danger;
+  }
+  .btn-uncertain {
+    @apply bg-olive;
+  }
+  .btn-accept-soft,
+  .btn-reject-soft,
+  .btn-uncertain-soft {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-accept-soft {
+    @apply border-ok/60 bg-ok/10 text-ok hover:bg-ok/20;
+  }
+  .btn-reject-soft {
+    @apply border-danger/60 bg-danger/10 text-danger hover:bg-danger/20;
+  }
+  .btn-uncertain-soft {
+    @apply border-olive/60 bg-olive/10 text-olive hover:bg-olive/20;
+  }
+  /* "What was decided" label next to a choice, so a click visibly lands. */
+  .badge-accept,
+  .badge-reject,
+  .badge-uncertain {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-onstatus;
+  }
+  .badge-accept {
+    @apply bg-ok;
+  }
+  .badge-reject {
+    @apply bg-danger;
+  }
+  .badge-uncertain {
+    @apply bg-olive;
   }
   /* Square icon-only button. Always paired with an aria-label; 32px hit area (WCAG 2.5.8 target size). */
   .btn-icon {

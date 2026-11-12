@@ -204,7 +204,9 @@ def build_plan(
     }
 
 
-def regenerate_ai_expression(db: Session, settings: Settings, project: Project, user: User) -> None:
+def regenerate_ai_expression(
+    db: Session, settings: Settings, project: Project, user: User, guidance: str | None = None
+) -> None:
     approved = _approved_or_fail(db, project)
     content = protocol_service.to_content(approved)
     if str(settings.search_query_builder).lower() != "auto":
@@ -215,7 +217,9 @@ def regenerate_ai_expression(db: Session, settings: Settings, project: Project, 
             "The protocol already has a Boolean search strategy, which is always used as written.",
             code="protocol_has_strategy",
         )
-    ai, note = search_suggestion_service.get_or_create(db, settings, project, approved, content, user=user, force=True)
+    ai, note = search_suggestion_service.get_or_create(
+        db, settings, project, approved, content, user=user, force=True, guidance=guidance
+    )
     if ai is None:
         raise Conflict(note or "The AI model could not build a search expression.", code="ai_unavailable")
 

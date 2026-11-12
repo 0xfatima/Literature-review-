@@ -60,6 +60,14 @@ def enqueue(
     spec = fsm.JOB_TYPES.get(job_type)
     if spec is None:
         raise ValidationFailed(f"Unknown job type '{job_type}'.")
+    if request_key:  # a replay of the same request returns its job below, even while that job is running
+        replay = repo.get_by_request_key(db, user.id, request_key)
+    else:
+        replay = None
+    if replay is None:
+        from app.services.activity_service import require_no_running_step
+
+        require_no_running_step(db, project_id, job_type)  # one review step at a time per project
     if request_key is not None and not (1 <= len(request_key) <= 128):
         raise ValidationFailed("Idempotency-Key must be 1-128 characters.")
     fp = fsm.fingerprint(job_type, str(project_id) if project_id else None, payload)

@@ -27,6 +27,13 @@ DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 RETRYABLE = frozenset({429, 500, 502, 503, 504})
 
 
+def _thinking_off(model: str) -> bool:
+    """Flash models "think" by default: slower, and the reasoning tokens count against maxOutputTokens, so long
+    JSON answers were cut off. Structured extraction does not need it. Pro models cannot switch it off."""
+    m = model.lower()
+    return "flash" in m and "pro" not in m
+
+
 def _retry_delay(resp: httpx.Response) -> float | None:
     h = resp.headers.get("retry-after")
     if h:
@@ -66,6 +73,7 @@ class GeminiProvider:
         self._key, self.model, self._client, self._throttle = api_key, model, client, throttle
         self._base = base_url.rstrip("/")
         self._tkey = throttle_key or f"llm:{self.name}:{model}"
+        self._thinking_rejected = False
         self._interval, self._retries, self._max_backoff, self._sleep = (
             min_interval_s,
             max_retries,
@@ -77,7 +85,7 @@ class GeminiProvider:
         self, *, system: str, prompt: str, schema: dict[str, Any], temperature: float, max_output_tokens: int
     ) -> LLMResult:
         url = f"{self._base}/models/{self.model}:generateContent"
-        body = {
+        body: dict[str, Any] = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -87,6 +95,8 @@ class GeminiProvider:
                 "responseSchema": schema,
             },
         }
+        if _thinking_off(self.model) and not self._thinking_rejected:
+            body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
         headers = {"x-goog-api-key": self._key, "Content-Type": "application/json"}
         start = time.monotonic()
         last: LLMError | None = None
@@ -95,6 +105,11 @@ class GeminiProvider:
             hint: float | None = None
             try:
                 resp = self._client.post(url, json=body, headers=headers)
+                if resp.status_code == 400 and "thinkingConfig" in body["generationConfig"]:
+                    # This model does not accept the setting: remember that and send the request without it.
+                    self._thinking_rejected = True
+                    body["generationConfig"].pop("thinkingConfig", None)
+                    resp = self._client.post(url, json=body, headers=headers)
             except httpx.TimeoutException:
                 last = LLMError("timeout", "The AI model did not respond in time.")
             except httpx.TransportError as e:

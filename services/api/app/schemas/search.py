@@ -18,6 +18,11 @@ class SearchPlanRequest(BaseModel):
     providers: list[str] | None = Field(default=None, max_length=10)
 
 
+class SuggestExpressionRequest(SearchPlanRequest):
+    # What the researcher wants changed ("focus on clinical trials", "leave out reviews"); sent to the model only.
+    guidance: str | None = Field(default=None, max_length=800)
+
+
 class SearchRunCreate(SearchPlanRequest):
     pass
 

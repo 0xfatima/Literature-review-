@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ApiError, apiFetch, json } from "@/lib/api";
+import { decisionButton } from "@/components/common/decisionStyle";
 import {
   citeLabel,
   decisionProblem,
@@ -133,7 +134,7 @@ function QueueItem({
             <>
               <button
                 type="button"
-                className="btn-secondary"
+                className={decisionButton("include", item.status === "included")}
                 disabled={busy}
                 aria-pressed={item.status === "included"}
                 onClick={() => decide.mutate({ decision: "include" })}
@@ -142,7 +143,7 @@ function QueueItem({
               </button>
               <button
                 type="button"
-                className="btn-secondary"
+                className={decisionButton("uncertain", item.status === "uncertain")}
                 disabled={busy}
                 aria-pressed={item.status === "uncertain"}
                 onClick={() => decide.mutate({ decision: "uncertain" })}
@@ -151,7 +152,7 @@ function QueueItem({
               </button>
               <button
                 type="button"
-                className="btn-secondary"
+                className={decisionButton("exclude", item.status === "excluded")}
                 disabled={busy}
                 aria-pressed={item.status === "excluded"}
                 onClick={() => {
@@ -213,7 +214,7 @@ function QueueItem({
           <div className="flex gap-2">
             <button
               type="button"
-              className="btn"
+              className="btn-reject"
               disabled={busy || problem !== null}
               onClick={() =>
                 decide.mutate({ decision: "exclude", reason_code: reason, note: note.trim() || undefined })

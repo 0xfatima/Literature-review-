@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import func, select
@@ -102,8 +103,11 @@ def start(
     force: bool,
     paper_ids: list[uuid.UUID] | None = None,
     request_key: str | None = None,
+    auto_decide: bool = False,
 ) -> Job:
     protocol_service.require_writable(project)
+    if auto_decide and not use_llm:
+        raise Conflict("Letting the AI screen needs the AI assessment.", code="auto_decide_needs_llm")
     if paper_ids:
         found = set(
             db.scalars(
@@ -136,6 +140,7 @@ def start(
             "use_llm": use_llm,
             "force": force or bool(paper_ids),
             "paper_ids": [str(p) for p in paper_ids or []],
+            "auto_decide": bool(auto_decide),
             "nonce": request_key or str(uuid.uuid4()),
         },
         request_key=request_key,
@@ -222,6 +227,7 @@ def _llm(
     force: bool,
     deadline: float,
     only: list[uuid.UUID] | None = None,
+    decide: Callable[[list[ai.Validated], str], None] | None = None,
 ) -> dict[str, Any]:
     protocol = ai.protocol_input(content)
     todo = repo.papers_needing(
@@ -236,6 +242,10 @@ def _llm(
     )
     size = max(1, min(settings.llm_batch_size, 25))
     assessed = failed = 0
+    # Progress is visible from the first second: before this, nothing moved until a whole batch had returned
+    # (often a minute on free tiers), so a working job looked stuck at 0%.
+    job_repo.set_progress(db, job.id, 30, f"AI assessment: starting, {len(todo)} papers to read")
+    db.commit()
     consecutive = 0
     stop: str | None = None
     for start in range(0, len(todo), size):
@@ -248,6 +258,13 @@ def _llm(
             break
         chunk = todo[start : start + size]
         inputs = [_paper_input(f"P{i + 1}", p) for i, p in enumerate(chunk)]
+        job_repo.set_progress(
+            db,
+            job.id,
+            30 + int(65 * start / max(len(todo), 1)),
+            f"AI is reading papers {start + 1}-{start + len(chunk)} of {len(todo)}",
+        )
+        db.commit()
         try:
             res = gw.generate_json(
                 data_class="public_metadata",
@@ -316,6 +333,8 @@ def _llm(
                     "model_run_id": mr.id,
                 },
             )
+        if decide is not None and valid:
+            decide(valid, res.model or (gw.provider.model if gw.provider else "AI"))
         assessed += len(valid)
         failed += len(missing)
         consecutive = 0
@@ -364,10 +383,32 @@ def execute(db: Session, job: Job, settings: Settings, *, gateway: LLMGateway | 
             from app.services.llm_jobs import token_guard
 
             gw.budget_guard = token_guard(db, project.id, settings.llm_daily_token_budget)
+        decide: Callable[[list[ai.Validated], str], None] | None = None
+        if payload.get("auto_decide"):
+            from app.db.models import User as UserModel
+            from app.services import screening_service
+
+            owner = db.get(UserModel, job.owner_id)
+            batch_id = uuid.uuid5(uuid.NAMESPACE_URL, f"ai-screening:{job.id}")
+            totals = {"include": 0, "exclude": 0, "uncertain": 0, "kept_human": 0}
+
+            def _decide(valid: list[ai.Validated], model: str) -> None:
+                if owner is None:
+                    return
+                items = [(uuid.UUID(v.paper_id), v.suggestion or "uncertain", v.suggestion_detail) for v in valid]
+                got = screening_service.record_ai_decisions(
+                    db, project, owner, pv, items, batch_id=batch_id, model=model
+                )
+                for k, n in got.items():
+                    totals[k] += n
+
+            decide = _decide
+            result["ai_decisions"] = totals
+            result["ai_decision_batch_id"] = str(batch_id)
         if not gw.available:
             result.update(llm_stop_reason="not_configured")
         else:
-            result.update(_llm(db, job, settings, gw, project.id, pv.id, content, force, deadline, only))
+            result.update(_llm(db, job, settings, gw, project.id, pv.id, content, force, deadline, only, decide))
     stop = result.get("llm_stop_reason")
     result["message"] = STOP_MESSAGES.get(str(stop)) if stop else None
     audit_service.record(

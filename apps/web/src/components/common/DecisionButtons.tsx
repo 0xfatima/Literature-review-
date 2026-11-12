@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { DECISION_LABELS } from "@/lib/screening";
 import type { HumanDecision, ScreeningReason } from "@/lib/types";
+import Icon from "@/components/ui/Icon";
+import { decisionButton } from "@/components/common/decisionStyle";
 
 export interface DecisionInput {
   decision: HumanDecision;
@@ -51,7 +53,7 @@ export function ExcludeForm({
       <div className="flex gap-2">
         <button
           type="button"
-          className="btn"
+          className="btn-reject"
           disabled={busy || blocked}
           onClick={() => onSubmit(reason || null, note.trim() || null)}
         >
@@ -93,23 +95,25 @@ export default function DecisionButtons({
           <button
             key={d}
             type="button"
-            className={decision === d ? "btn" : "btn-secondary"}
+            className={decisionButton(d, decision === d)}
             aria-pressed={decision === d}
             aria-keyshortcuts={d === "include" ? "I" : "U"}
             disabled={busy}
             onClick={() => onDecide({ decision: d })}
           >
+            {decision === d && <Icon name="check" size={14} />}
             {DECISION_LABELS[d]}
           </button>
         ))}
         <button
           type="button"
-          className={decision === "exclude" ? "btn" : "btn-secondary"}
+          className={decisionButton("exclude", decision === "exclude")}
           aria-pressed={decision === "exclude"}
           aria-keyshortcuts="E"
           disabled={busy}
           onClick={() => setExcluding(true)}
         >
+          {decision === "exclude" && <Icon name="check" size={14} />}
           {DECISION_LABELS.exclude}…
         </button>
       </div>

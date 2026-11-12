@@ -92,7 +92,7 @@ test("each project keeps its own threads when switching through the breadcrumb",
   await page.getByRole("link", { name: "Projects", exact: true }).click();
   await createProject(page, "Project Beta");
 
-  await expect(page.getByRole("button", { name: "Start a thread" })).toBeVisible(); // Beta has no threads
+  await expect(page.getByRole("button", { name: "Start setting up the review" })).toBeVisible(); // Beta has no threads
 
   await page.getByRole("link", { name: "Projects", exact: true }).click();
   await page.getByRole("link", { name: "Project Alpha" }).click();

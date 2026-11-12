@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    activity,
     appraisal,
     assist,
     audit,
@@ -36,3 +37,4 @@ api_router.include_router(reports.router)
 api_router.include_router(assist.router)
 api_router.include_router(pipeline.router)
 api_router.include_router(audit.router)
+api_router.include_router(activity.router)

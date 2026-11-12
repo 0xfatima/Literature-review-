@@ -74,6 +74,18 @@ export interface Job {
   /** Queued but held back by the fair-share limit; starts automatically when capacity frees up. */
   waiting_for_capacity?: boolean;
 }
+/** One review step at a time (backend: app/services/activity_service.py). */
+export interface ProjectActivity {
+  running: Job | null;
+  running_label: string | null;
+  can_pause: boolean;
+  paused: Job | null;
+  paused_label: string | null;
+  /** The paused step is still finishing the papers/pages it had started. */
+  pausing: boolean;
+  /** Status of the automation run, if one is active. */
+  automation: string | null;
+}
 export interface JobList {
   items: Job[];
 }
