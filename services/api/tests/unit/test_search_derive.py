@@ -87,3 +87,21 @@ def test_filter_plan_maps_languages_and_reports_unknown_ones():
     assert fp.languages == [("en", "eng"), ("fr", "fre")]
     assert fp.unrecognised_languages == ["deu", "Klingon"]  # ISO 639-2/T 'deu' is not the /B code 'ger'
     assert fp.as_dict()["study_designs"] == ["RCT"]
+
+
+def test_a_thin_objective_is_completed_from_the_topic_and_acronyms_meet_their_expansion():
+    d = derive.derive(
+        content(objective="to understand the current impact of QML."),
+        "How much is quantum machine learning clinically deployable right now?",
+    )
+    assert d.source == "objective_topic"
+    assert d.expression == '("quantum machine learning" OR qml) AND (clinic* AND deploy*)'
+    q.parse(d.expression)
+    assert "understand" not in d.expression
+
+
+def test_acronym_expansions_use_only_what_the_researcher_wrote():
+    assert derive.acronym_expansions("RCT of yoga", "randomised controlled trials") == {
+        "rct": "randomised controlled trials"
+    }
+    assert derive.acronym_expansions("QML only") == {}

@@ -277,7 +277,13 @@ export function CriteriaEditor({
           return (
             <li
               key={c.stable_key ?? `new-${i}`}
-              className={`rounded border px-2 py-2 ${state === "rejected" ? "border-line opacity-60" : "border-line"}`}
+              className={`rounded border px-2 py-2 ${
+                !suggested || state === "proposed"
+                  ? "border-line"
+                  : state === "accepted"
+                    ? "border-ok/60 bg-ok/5"
+                    : "border-danger/50 bg-danger/5"
+              }`}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <label htmlFor={`${base}-k${i}`} className="sr-only">
@@ -311,32 +317,37 @@ export function CriteriaEditor({
                 </button>
               </div>
               {suggested && (
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="text-muted">
-                    Suggestion
-                    {state === "proposed"
-                      ? " (undecided)"
-                      : state === "accepted"
-                        ? " (accepted)"
-                        : " (rejected)"}
-                    {c.rationale ? `: ${c.rationale}` : ""}
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                  {state === "accepted" ? (
+                    <span className="badge-accept" aria-live="polite">
+                      ✓ Accepted
+                    </span>
+                  ) : state === "rejected" ? (
+                    <span className="badge-reject" aria-live="polite">
+                      ✕ Rejected — will not be used
+                    </span>
+                  ) : (
+                    <span className="font-semibold text-ink">Suggested — accept or reject it</span>
+                  )}
+                  {c.rationale && <span className="text-muted">{c.rationale}</span>}
+                  <span className="ml-auto flex gap-2">
+                    <button
+                      type="button"
+                      className={`${state === "accepted" ? "btn-accept" : "btn-accept-soft"} px-2 py-1 text-xs`}
+                      aria-pressed={state === "accepted"}
+                      onClick={() => set(i, { state: "accepted" })}
+                    >
+                      Accept
+                    </button>
+                    <button
+                      type="button"
+                      className={`${state === "rejected" ? "btn-reject" : "btn-reject-soft"} px-2 py-1 text-xs`}
+                      aria-pressed={state === "rejected"}
+                      onClick={() => set(i, { state: "rejected" })}
+                    >
+                      Reject
+                    </button>
                   </span>
-                  <button
-                    type="button"
-                    className="btn-ghost text-xs"
-                    aria-pressed={state === "accepted"}
-                    onClick={() => set(i, { state: "accepted" })}
-                  >
-                    Accept
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost text-xs"
-                    aria-pressed={state === "rejected"}
-                    onClick={() => set(i, { state: "rejected" })}
-                  >
-                    Reject
-                  </button>
                 </div>
               )}
             </li>

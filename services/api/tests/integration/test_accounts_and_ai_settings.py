@@ -178,3 +178,34 @@ def test_chat_commands_return_the_view_and_the_request_to_confirm(user_client, d
         c.request(r["request"]["method"], "/api" + "/v1" + r["request"]["path"], json=r["request"]["body"]).status_code
         == 202
     )
+
+
+def test_a_search_run_with_an_ai_built_query_is_saved_and_guidance_reaches_the_model(
+    user_client, dispatcher, monkeypatch
+):
+    c, _, _ = user_client()
+    pid = approved(c, dispatcher)
+    prompts: list[str] = []
+
+    class Recording(FakeProvider):
+        def generate_json(self, **kw):
+            prompts.append(kw["prompt"])
+            return super().generate_json(**kw)
+
+    fake = Recording('(exercise OR "physical activity") AND depression')
+    monkeypatch.setattr("app.services.search_suggestion_service.build_gateway", lambda _s: LLMGateway(fake))
+    plan = c.post(f"/api/v1/projects/{pid}/search/plan", json={"tier": "open_access"}).json()
+    if plan["expression_source"] == "search_strategy":
+        pytest.skip("the fixture protocol has a Boolean strategy, which always wins")
+    # before migration 0015 the check constraint refused expression_source = 'ai' when the run was saved
+    r = c.post(f"/api/v1/projects/{pid}/search-runs", json={"tier": "open_access"})
+    assert r.status_code == 202, r.text
+    assert r.json()["expression_source"] == "ai"
+
+    again = c.post(
+        f"/api/v1/projects/{pid}/search/suggest-expression",
+        json={"tier": "open_access", "guidance": "focus on older adults"},
+    )
+    assert again.status_code == 200, again.text
+    assert "focus on older adults" in prompts[-1]
+    assert any("Adjusted to your request" in n for n in again.json()["derivation_notes"])

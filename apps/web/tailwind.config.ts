@@ -19,6 +19,8 @@ const config: Config = {
         danger: v("danger"),
         ok: v("ok"),
         warn: v("warn"),
+        olive: v("olive"),
+        onstatus: v("on-status"),
         onmark: v("on-mark"),
       },
       fontFamily: {

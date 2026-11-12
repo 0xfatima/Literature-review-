@@ -368,3 +368,76 @@ def test_a_relevance_job_for_a_superseded_protocol_fails_visibly(user_client, di
     wf_answer(c, dispatcher, pid, "approve")
     assert run_relevance_jobs(dispatcher) == ["failed"]
     assert "protocol changed" in c.get(f"/api/v1/projects/{pid}/screening/relevance").json()["last_error"]
+
+
+# ---------- "select all matching" and "let the AI screen" ----------
+
+
+def test_bulk_can_cover_every_matching_record_minus_unticked_ones(screened):
+    c, pid = screened
+    items = queue(c, pid, limit=1)  # one per page: proves it is not limited to the visible page
+    assert items["total"] == 4
+    keep = items["items"][0]["paper_id"]
+    r = c.post(
+        f"/api/v1/projects/{pid}/screening/bulk",
+        json={"decision": "include", "all_matching": {"decision": "undecided", "except_ids": [keep]}},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["changed"] == 3
+    states = {i["paper_id"]: i["decision"] for i in queue(c, pid, decision="")["items"]}
+    assert states[keep] is None and sorted(v for k, v in states.items() if k != keep) == ["include"] * 3
+    empty = c.post(
+        f"/api/v1/projects/{pid}/screening/bulk",
+        json={"decision": "include", "all_matching": {"decision": "undecided", "except_ids": [keep]}},
+    )
+    assert empty.status_code == 422  # nothing left that matches
+    assert c.post(f"/api/v1/projects/{pid}/screening/bulk", json={"decision": "include"}).status_code == 422
+
+
+def test_ai_screening_records_decisions_only_where_nobody_decided_and_can_be_undone(screened, dispatcher, app, db):
+    c, pid = screened
+    app.dependency_overrides[get_settings] = llm_settings
+    quote = "Older adults with depression exercised."
+    human = item(c, pid, fx.T_W2)
+    decide(c, pid, human, "exclude")  # a person's decision is never overwritten
+
+    def answer(key, block):
+        if fx.T_W1 in block:
+            return {
+                "paper": key,
+                "relevance": 90,
+                "relevance_reason": "on topic",
+                "insufficient_information": False,
+                "eligibility_suggestion": "exclude",
+                "eligibility_reason": "wrong population",
+                "criteria": [{"criterion": "C1", "judgement": "not_met", "evidence_quote": quote}],
+            }
+        return {
+            "paper": key,
+            "relevance": 70,
+            "relevance_reason": "fits",
+            "insufficient_information": False,
+            "eligibility_suggestion": "include",
+            "eligibility_reason": "meets the criteria",
+        }
+
+    assert c.post(f"/api/v1/projects/{pid}/screening/relevance", json={"auto_decide": True}).status_code == 409
+    r = c.post(f"/api/v1/projects/{pid}/screening/relevance", json={"use_llm": True, "auto_decide": True})
+    assert r.status_code == 202, r.text
+    assert run_relevance_jobs(dispatcher, LLMGateway(FakeLLM(answer)), llm_settings()) == ["ok"]
+
+    status = c.get(f"/api/v1/projects/{pid}/screening/relevance").json()
+    decided = status["last_result"]["ai_decisions"]
+    assert decided == {"include": 2, "exclude": 1, "uncertain": 0, "kept_human": 1}
+    w1 = item(c, pid, fx.T_W1)
+    assert w1["decision"] == "exclude"
+    last = history(c, pid, w1["paper_id"])[-1]
+    assert last["note"].startswith("AI screening") and last["reason_code"].startswith("inclusion:")
+    assert item(c, pid, fx.T_W2)["decision"] == "exclude"  # the person's own decision
+    assert len(history(c, pid, human["paper_id"])) == 1
+
+    u = c.post(
+        f"/api/v1/projects/{pid}/screening/undo", json={"batch_id": status["last_result"]["ai_decision_batch_id"]}
+    )
+    assert u.json()["undone"] == 3
+    assert queue(c, pid)["progress"]["undecided"] == 3

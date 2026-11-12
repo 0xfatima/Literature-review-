@@ -619,6 +619,13 @@ def dispatch(kind: str, ctx: Ctx, key: str) -> str:
     existing = job_by_key(ctx, key)
     if existing is not None:
         return str(existing.id)
+    from app.services.activity_service import running_step
+
+    busy = running_step(ctx.db, ctx.project.id)
+    if busy is not None and kind != "report":
+        # One step at a time: wait for the step that is already running (started by the person or by an earlier
+        # round); the stage is evaluated again when it finishes and dispatched then if work remains.
+        return str(busy.id)
     if kind == "report":
         from app.reports import service as report_service
 

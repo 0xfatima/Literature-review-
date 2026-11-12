@@ -104,13 +104,15 @@ function PlanEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, tier]);
 
+  const [guidance, setGuidance] = useState("");
   const suggest = useMutation({
     mutationFn: () =>
       apiFetch<SearchPlan>(`/projects/${projectId}/search/suggest-expression`, {
         method: "POST",
-        ...json({ tier, expression: null, providers }),
+        ...json({ tier, expression: null, providers, guidance: guidance.trim() || null }),
       }),
     onSuccess: (p) => {
+      setGuidance("");
       setExpression(null);
       setPlan(p);
       setPlanError(null);
@@ -188,9 +190,20 @@ function PlanEditor({
           aria-describedby={`expr-help-${tier}`}
         />
         <p id={`expr-help-${tier}`} className="mt-1 text-xs text-muted">
-          Use AND, OR, NOT in capitals, &quot;quoted phrases&quot;, parentheses and a trailing * for
-          truncation. It is translated into each source&apos;s own syntax below.
+          AND, OR, NOT in capitals; &quot;quoted phrases&quot;; a trailing * matches word endings.
         </p>
+        <label htmlFor={`guide-${tier}`} className="mt-3 block text-xs text-muted">
+          Want the AI to write it differently? Say how (optional)
+        </label>
+        <input
+          id={`guide-${tier}`}
+          className="input mt-1"
+          maxLength={800}
+          placeholder="e.g. focus on clinical use; leave out purely theoretical papers"
+          value={guidance}
+          disabled={!canWrite || disabled}
+          onChange={(e) => setGuidance(e.target.value)}
+        />
         <div className="mt-2 flex flex-wrap gap-2">
           <button
             type="button"
@@ -235,56 +248,61 @@ function PlanEditor({
             {EXPRESSION_SOURCE_LABELS[plan.expression_source] ?? plan.expression_source} · protocol version{" "}
             {plan.protocol_version}
           </p>
-          {plan.derivation_notes.length > 0 && (
-            <ul className="list-disc pl-5 text-xs text-muted">
-              {plan.derivation_notes.map((n) => (
-                <li key={n}>{n}</li>
-              ))}
-            </ul>
-          )}
-          {plan.queries.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <caption className="sr-only">Exact query sent to each source</caption>
-                <thead className="text-muted">
-                  <tr>
-                    <th className="py-1 pr-3 font-medium">Source</th>
-                    <th className="py-1 pr-3 font-medium">Exact query</th>
-                    <th className="py-1 font-medium">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {plan.queries.map((q) => (
-                    <tr key={q.provider} className="border-t border-line align-top">
-                      <td className="py-2 pr-3">{q.provider_label}</td>
-                      <td className="py-2 pr-3 font-mono break-all">
-                        {q.query_text}
-                        {Object.keys(q.filters_applied).length > 0 && (
-                          <span className="mt-1 block text-muted">
-                            Filters: {JSON.stringify(q.filters_applied)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2 text-muted">
-                        {q.limitations.length ? q.limitations.join(" ") : "—"}
-                      </td>
+          <details className="rounded border border-line px-3 py-2">
+            <summary className="cursor-pointer text-xs text-muted">
+              How this query was built, and the exact query sent to each source
+            </summary>
+            {plan.derivation_notes.length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-xs text-muted">
+                {plan.derivation_notes.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            )}
+            {plan.queries.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <caption className="sr-only">Exact query sent to each source</caption>
+                  <thead className="text-muted">
+                    <tr>
+                      <th className="py-1 pr-3 font-medium">Source</th>
+                      <th className="py-1 pr-3 font-medium">Exact query</th>
+                      <th className="py-1 font-medium">Notes</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {plan.limitations.length > 0 && (
-            <ul className="list-disc pl-5 text-xs text-muted">
-              {plan.limitations.map((l) => (
-                <li key={l}>{l}</li>
-              ))}
-            </ul>
-          )}
-          <p className="text-xs text-muted">
-            Up to {plan.max_records_per_provider} records per source. A source reporting more is marked
-            &quot;stopped at record limit&quot;, never complete.
-          </p>
+                  </thead>
+                  <tbody>
+                    {plan.queries.map((q) => (
+                      <tr key={q.provider} className="border-t border-line align-top">
+                        <td className="py-2 pr-3">{q.provider_label}</td>
+                        <td className="py-2 pr-3 font-mono break-all">
+                          {q.query_text}
+                          {Object.keys(q.filters_applied).length > 0 && (
+                            <span className="mt-1 block text-muted">
+                              Filters: {JSON.stringify(q.filters_applied)}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 text-muted">
+                          {q.limitations.length ? q.limitations.join(" ") : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {plan.limitations.length > 0 && (
+              <ul className="list-disc pl-5 text-xs text-muted">
+                {plan.limitations.map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs text-muted">
+              Up to {plan.max_records_per_provider} records per source. A source reporting more is marked
+              &quot;stopped at record limit&quot;, never complete.
+            </p>
+          </details>
           <div>
             <button
               type="button"

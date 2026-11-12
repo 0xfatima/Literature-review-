@@ -174,7 +174,7 @@ function StatementCard({
             <>
               <button
                 type="button"
-                className="btn-secondary"
+                className="btn-accept-soft"
                 onClick={() => onReview({ action: "accept", statement_id: s.id })}
               >
                 Accept
@@ -184,7 +184,7 @@ function StatementCard({
               </button>
               <button
                 type="button"
-                className="btn-ghost"
+                className="btn-reject-soft"
                 onClick={() => onReview({ action: "reject", statement_id: s.id })}
               >
                 Reject
@@ -524,7 +524,7 @@ export default function SynthesisPanel({ projectId, canWrite }: { projectId: str
                   </label>
                   <button
                     type="button"
-                    className="btn"
+                    className="btn-accept"
                     onClick={() => accept.mutate()}
                     disabled={!!blocker || accept.isPending}
                     title={blocker ?? "Accept this synthesis version"}

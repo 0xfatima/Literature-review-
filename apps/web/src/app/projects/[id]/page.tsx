@@ -25,7 +25,7 @@ import { ApiError, apiFetch, json } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import { stageLabel } from "@/lib/stages";
 import { REVIEW_STEPS, type ViewId, isViewId, nextAfterClose, viewLabel } from "@/lib/steps";
-import type { Conversation, ConversationList, Job, Project } from "@/lib/types";
+import type { Conversation, ConversationList, Job, Project, WorkflowState } from "@/lib/types";
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -211,14 +211,32 @@ function ProjectWorkspace({ id }: { id: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  /** The first thread of a project is the guided setup: it starts the review workflow, whose questions arrive in
+   *  that thread. Before this, "Start a thread" made an empty chat that nothing ever answered. Later threads are
+   *  free conversations. */
   const createThread = useMutation({
-    mutationFn: () =>
-      apiFetch<Conversation>(`/projects/${id}/conversations`, { method: "POST", ...json({}) }),
-    onSuccess: (c) => {
+    mutationFn: async (): Promise<{ conversationId: string; guided: boolean }> => {
+      const wf = await apiFetch<WorkflowState>(`/projects/${id}/workflow`).catch(() => null);
+      if (wf && wf.run === null) {
+        const started = await apiFetch<WorkflowState>(`/projects/${id}/workflow`, { method: "POST" });
+        if (started.run?.conversation_id)
+          return { conversationId: started.run.conversation_id, guided: true };
+      }
+      const c = await apiFetch<Conversation>(`/projects/${id}/conversations`, {
+        method: "POST",
+        ...json({}),
+      });
       qc.setQueryData<ConversationList>(["conversations", id], (old) =>
         old ? { ...old, items: [c, ...old.items], total: old.total + 1 } : old,
       );
-      setParams({ c: c.id });
+      return { conversationId: c.id, guided: false };
+    },
+    onSuccess: ({ conversationId, guided }) => {
+      if (guided) {
+        qc.invalidateQueries({ queryKey: ["conversations", id] });
+        qc.invalidateQueries({ queryKey: ["workflow", id] });
+      }
+      setParams({ c: conversationId });
       setSave({ kind: "saved", at: new Date() });
     },
     onError: (e) => reportError(e instanceof ApiError ? e.message : "Could not start a thread."),

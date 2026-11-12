@@ -365,7 +365,7 @@ function CellDetail({
               {item && item.status !== "pending" && item.review_status !== "approved" && (
                 <button
                   type="button"
-                  className="btn"
+                  className="btn-accept"
                   onClick={() => approve.mutate(item)}
                   disabled={approve.isPending}
                 >

@@ -34,7 +34,8 @@ export const messages = (page: Page) => page.getByRole("list", { name: "Messages
 export const threads = (page: Page) => page.getByRole("list", { name: "Chat threads" });
 
 export async function startThread(page: Page) {
-  await page.getByRole("button", { name: "Start a thread" }).click();
+  // A project's first thread starts the guided setup; later ones are free conversations.
+  await page.getByRole("button", { name: /^(Start setting up the review|Start a thread)$/ }).click();
   await expect(page).toHaveURL(/[?&]c=[0-9a-f-]{36}/);
 }
 

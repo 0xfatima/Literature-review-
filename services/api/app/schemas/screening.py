@@ -17,9 +17,22 @@ class DecisionRequest(BaseModel):
     expected_row_version: int | None = Field(default=None, ge=0)
 
 
+class BulkFilter(BaseModel):
+    """ "Every record matching these filters" (all pages), minus the ones the user unticked."""
+
+    model_config = ConfigDict(extra="forbid")
+    decision: str | None = Field(default=None, max_length=20)
+    band: str | None = Field(default=None, max_length=40)
+    suggestion: str | None = Field(default=None, max_length=20)
+    q: str | None = Field(default=None, max_length=200)
+    except_ids: list[uuid.UUID] = Field(default_factory=list, max_length=5000)
+
+
 class BulkDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    paper_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    # Either explicit ids (one page at most) or all_matching (every page).
+    paper_ids: list[uuid.UUID] = Field(default_factory=list, max_length=200)
+    all_matching: BulkFilter | None = None
     decision: HumanDecision
     reason_code: str | None = Field(default=None, max_length=80)
     note: str | None = Field(default=None, max_length=2000)
@@ -35,6 +48,8 @@ class RelevanceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     use_llm: bool = False
     force: bool = False
+    # "Let the AI screen": record the AI's suggestions as decisions for records nobody has decided yet.
+    auto_decide: bool = False
     # Phase 12 "Reassess relevance": limit the run to these papers (always re-assessed).
     paper_ids: list[uuid.UUID] | None = Field(default=None, max_length=200)
 

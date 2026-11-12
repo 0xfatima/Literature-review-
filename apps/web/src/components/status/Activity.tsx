@@ -6,7 +6,7 @@ import { useWorkflow } from "@/components/protocol/hooks";
 import Icon, { Spinner } from "@/components/ui/Icon";
 import { PopoverPanel, usePopover } from "@/components/ui/Popover";
 import { type WorkspaceOverview, useWorkspaceOverview } from "@/components/workspace/overview";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import { SECTION_LABELS, isBusy } from "@/lib/protocol";
 import { stageLabel } from "@/lib/stages";
 import {
@@ -18,7 +18,7 @@ import {
   stepOfView,
   viewLabel,
 } from "@/lib/steps";
-import type { Job, JobList, Project, WorkflowRun } from "@/lib/types";
+import type { Job, JobList, Project, ProjectActivity, WorkflowRun } from "@/lib/types";
 import { JOB_STATE_LABELS, isActiveJob, jobState } from "@/lib/workspace";
 import { useStatus } from "./StatusContext";
 
@@ -40,6 +40,11 @@ interface ActivityApi {
   /** The view the backend flags as needing attention or in progress (workspace overview). */
   attentionView: string | null;
   cancel: (j: Job) => void;
+  /** The one review step running now, or the one paused (one step at a time per project). */
+  step: ProjectActivity | undefined;
+  pause: () => void;
+  resume: () => void;
+  stepBusy: boolean;
   openView: (v: ViewId) => void;
   openChat: (conversationId?: string | null) => void;
   openSteps: () => void;
@@ -91,6 +96,29 @@ export function ActivityProvider({
   const overview = useWorkspaceOverview(pid).data;
   const flagged = overview?.stages.find((s) => s.key === overview.current);
   const attentionView = flagged?.tab ?? null;
+
+  const stepQ = useQuery({
+    queryKey: ["activity", pid],
+    queryFn: () => apiFetch<ProjectActivity>(`/projects/${pid}/activity`),
+    refetchInterval: (q) => (q.state.data?.running || q.state.data?.pausing ? 1500 : 8000),
+  });
+  const afterStep = () => {
+    for (const k of ["activity", "jobs", "relevance", "search-runs", "pipeline", "workspace", "screening"])
+      qc.invalidateQueries({ queryKey: [k, pid] });
+    qc.invalidateQueries({ queryKey: ["jobs"] });
+  };
+  const pauseM = useMutation({
+    mutationFn: () => apiFetch<ProjectActivity>(`/projects/${pid}/activity/pause`, { method: "POST" }),
+    onSuccess: (a) => qc.setQueryData(["activity", pid], a),
+    onSettled: afterStep,
+    onError: (e) => reportError(e instanceof ApiError ? e.message : "Could not pause."),
+  });
+  const resumeM = useMutation({
+    mutationFn: () => apiFetch<ProjectActivity>(`/projects/${pid}/activity/resume`, { method: "POST" }),
+    onSuccess: (a) => qc.setQueryData(["activity", pid], a),
+    onSettled: afterStep,
+    onError: (e) => reportError(e instanceof ApiError ? e.message : "Could not resume."),
+  });
 
   const cancelM = useMutation({
     mutationFn: (j: Job) => apiFetch<Job>(`/jobs/${j.id}/cancel`, { method: "POST" }),
@@ -186,12 +214,30 @@ export function ActivityProvider({
       overview,
       attentionView,
       cancel: (j) => cancelM.mutate(j),
+      step: stepQ.data,
+      pause: () => pauseM.mutate(),
+      resume: () => resumeM.mutate(),
+      stepBusy: pauseM.isPending || resumeM.isPending,
       openView,
       openChat,
       openSteps,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [project, active, recent, jobs.isError, run, overview, attentionView, openView, openChat, openSteps],
+    [
+      project,
+      active,
+      recent,
+      jobs.isError,
+      run,
+      overview,
+      attentionView,
+      stepQ.data,
+      pauseM.isPending,
+      resumeM.isPending,
+      openView,
+      openChat,
+      openSteps,
+    ],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -204,9 +250,15 @@ export function useActivity(): ActivityApi {
 
 /** What the person should know right now, in one short phrase (no percentages: those would make screen
  *  readers re-announce every poll). */
-function headline(a: ActivityApi): { text: string; tone: "busy" | "waiting" | "problem" | "idle" } {
+function headline(a: ActivityApi): {
+  text: string;
+  tone: "busy" | "paused" | "waiting" | "problem" | "idle";
+} {
   const failed = a.run?.status === "failed" || a.run?.status === "needs_attention";
   if (failed || a.project.status === "needs_attention") return { text: "Needs attention", tone: "problem" };
+  if (a.step?.running)
+    return { text: `${a.step.running_label ?? jobLabel(a.step.running.type)} running`, tone: "busy" };
+  if (a.step?.paused) return { text: `${a.step.paused_label ?? "A step"} paused`, tone: "paused" };
   const job = a.active[0];
   if (job) return { text: `${jobLabel(job.type)} running`, tone: "busy" };
   if (isBusy(a.run)) return { text: "Preparing the next question", tone: "busy" };
@@ -221,20 +273,29 @@ export function CurrentActivity() {
   const idx = currentStepIndex(a.project.status, a.attentionView);
   const step = idx >= 0 ? REVIEW_STEPS[idx] : null;
   const h = headline(a);
-  const job = a.active[0];
+  const job = a.step?.running ?? a.active[0];
+  const paused = !a.step?.running && a.step?.paused ? a.step : null;
   const stepName = step?.label ?? stageLabel(a.project.status);
   const failedRecent = a.recent.filter((j) => jobState(j) === "failed").length;
 
   return (
-    <div className="relative">
+    <div className="relative flex items-center gap-1.5">
       <button
         ref={pop.triggerRef}
         type="button"
         data-testid="current-activity"
         aria-expanded={pop.open}
         aria-controls={pop.open ? pop.id : undefined}
-        className={`flex h-8 max-w-[min(28rem,52vw)] items-center gap-2 rounded-md border px-2.5 text-xs hover:bg-raised ${
-          h.tone === "problem" ? "border-danger/60" : h.tone === "waiting" ? "border-mark/60" : "border-line"
+        className={`flex h-8 max-w-[min(30rem,52vw)] items-center gap-2 rounded-md border px-2.5 text-xs hover:bg-raised ${
+          h.tone === "problem"
+            ? "border-danger/60"
+            : h.tone === "busy"
+              ? "border-mark bg-mark/10"
+              : h.tone === "paused"
+                ? "border-olive bg-olive/10"
+                : h.tone === "waiting"
+                  ? "border-mark/60"
+                  : "border-line"
         }`}
         onClick={() => (pop.open ? pop.close() : pop.setOpen(true))}
       >
@@ -242,27 +303,70 @@ export function CurrentActivity() {
           <Spinner className="text-mark" />
         ) : h.tone === "problem" ? (
           <Icon name="alert" size={14} className="text-danger" />
+        ) : h.tone === "paused" ? (
+          <Icon name="pause" size={14} className="text-olive" />
         ) : h.tone === "waiting" ? (
           <span aria-hidden className="h-2 w-2 rounded-full bg-mark" />
         ) : (
           <span aria-hidden className="h-2 w-2 rounded-full bg-ok" />
         )}
         <span className="truncate">
-          <span className="font-semibold text-ink">{stepName}</span>
-          {step && (
-            <span className="hidden text-muted md:inline">
-              {" "}
-              · step {idx + 1} of {REVIEW_STEPS.length}
-            </span>
+          {h.tone === "busy" || h.tone === "paused" ? (
+            <>
+              <span className="font-semibold text-ink">
+                {h.tone === "busy" ? "Running: " : "Paused: "}
+                {a.step?.running_label ?? a.step?.paused_label ?? (job ? jobLabel(job.type) : stepName)}
+              </span>
+              {h.tone === "busy" && job && job.status === "running" && (
+                <span className="text-ink"> {job.progress}%</span>
+              )}
+              {h.tone === "busy" && job?.status === "queued" && (
+                <span className="text-muted"> starting…</span>
+              )}
+              {paused?.pausing && <span className="text-muted"> (finishing current batch)</span>}
+              <span className="hidden text-muted lg:inline"> · {stepName}</span>
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-ink">{stepName}</span>
+              {step && (
+                <span className="hidden text-muted md:inline">
+                  {" "}
+                  · step {idx + 1} of {REVIEW_STEPS.length}
+                </span>
+              )}
+              <span className="hidden text-muted sm:inline"> · {h.text}</span>
+            </>
           )}
-          <span className="hidden text-muted sm:inline">
-            {" "}
-            · {h.text}
-            {job && job.status === "running" ? ` ${job.progress}%` : ""}
-          </span>
         </span>
         <Icon name="chevronDown" size={14} className="text-muted" />
       </button>
+      {a.step?.running && a.step.can_pause && (
+        <button
+          type="button"
+          className="btn-uncertain h-8 px-2.5 text-xs"
+          disabled={a.stepBusy || !a.project || a.project.archived_at !== null}
+          onClick={a.pause}
+          title="Pause this step. Work finished so far is kept; Resume continues from there."
+        >
+          <Icon name="pause" size={14} /> Pause
+        </button>
+      )}
+      {paused && (
+        <button
+          type="button"
+          className="btn-accept h-8 px-2.5 text-xs"
+          disabled={a.stepBusy || paused.pausing || a.project.archived_at !== null}
+          onClick={a.resume}
+          title={
+            paused.pausing
+              ? "Still stopping; you can resume in a few seconds."
+              : "Continue from where it stopped"
+          }
+        >
+          <Icon name="play" size={14} /> Resume
+        </button>
+      )}
       {/* Announce changes of state, not progress ticks. */}
       <span className="sr-only" aria-live="polite">
         {`${stepName}. ${h.text}.`}
@@ -310,6 +414,16 @@ export function CurrentActivity() {
           <h2 id="running-h" className="section-title mb-1.5">
             Running now
           </h2>
+          <p className="mb-1.5 text-2xs text-muted">
+            One step runs at a time. Pause it to start a different one; Resume continues where it stopped.
+          </p>
+          {paused && (
+            <p className="mb-2 flex items-center gap-2 text-xs">
+              <span className="badge-uncertain">Paused</span>
+              {paused.paused_label}
+              {paused.pausing ? " is finishing the batch it had started." : " — press Resume to continue."}
+            </p>
+          )}
           {a.jobsError && <p className="text-xs text-danger">Job status is unavailable right now.</p>}
           {!a.jobsError && a.active.length === 0 && (
             <p className="text-xs text-muted">No background work is running.</p>

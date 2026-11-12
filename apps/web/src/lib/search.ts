@@ -33,6 +33,7 @@ export const EXPRESSION_SOURCE_LABELS: Record<string, string> = {
   search_strategy: "From the protocol's search strategy",
   framework_elements: "Built from the protocol's framework elements",
   objective: "Keywords from the protocol objective (review before running)",
+  objective_topic: "Keywords from your topic and objective (review before running)",
   topic: "Keywords from the project topic (review before running)",
   ai: "Designed by the AI model from your protocol (review before running)",
   user_edited: "Edited by you (the protocol-derived query is kept for the record)",

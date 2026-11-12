@@ -22,6 +22,8 @@ const PATHS = {
   trash: "M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12",
   arrowLeft: "M19 12H5M11 6l-6 6 6 6",
   clock: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2",
+  pause: "M8 5v14M16 5v14",
+  play: "M7 5l12 7-12 7z",
   file: "M7 3h7l4 4v14H7zM14 3v4h4",
 } as const;
 

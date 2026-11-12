@@ -1,6 +1,6 @@
 "use client";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import {
   BANDS,
@@ -377,15 +377,33 @@ function Card({
 function RelevanceControls({ projectId, canWrite }: { projectId: string; canWrite: boolean }) {
   const { reportError } = useStatus();
   const qc = useQueryClient();
+  const refresh = useRefresh(projectId);
   const [ack, setAck] = useState(false);
+  const [autoDecide, setAutoDecide] = useState(true);
   const status = useQuery({
     queryKey: ["relevance", projectId],
     queryFn: () => apiFetch<RelevanceStatus>(`/projects/${projectId}/screening/relevance`),
     refetchInterval: (q) => (q.state.data?.active_job_id ? 2000 : false),
   });
-  const wasActive = status.data?.active_job_id;
+  const activeId = status.data?.active_job_id ?? null;
+  const job = useQuery({
+    queryKey: ["jobs", projectId, activeId],
+    queryFn: () => apiFetch<Job>(`/jobs/${activeId}`),
+    enabled: activeId !== null,
+    refetchInterval: 2000,
+  });
+  // When the job finishes, the queue shows the new scores and any AI decisions.
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (activeId) wasRunning.current = true;
+    else if (wasRunning.current) {
+      wasRunning.current = false;
+      refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId]);
   const start = useMutation({
-    mutationFn: (b: { use_llm: boolean; force?: boolean }) =>
+    mutationFn: (b: { use_llm: boolean; force?: boolean; auto_decide?: boolean }) =>
       apiFetch<Job>(`/projects/${projectId}/screening/relevance`, { method: "POST", ...json(b) }),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["relevance", projectId] });
@@ -393,71 +411,154 @@ function RelevanceControls({ projectId, canWrite }: { projectId: string; canWrit
     },
     onError: (e) => reportError(errText(e, "Could not start the relevance assessment.")),
   });
+  const cancel = useMutation({
+    mutationFn: (id: string) => apiFetch<Job>(`/jobs/${id}/cancel`, { method: "POST" }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["relevance", projectId] }),
+    onError: (e) => reportError(errText(e, "Could not stop the assessment.")),
+  });
+  const undoAi = useMutation({
+    mutationFn: (batchId: string) =>
+      apiFetch<{ undone: number; skipped_changed_since: number }>(`/projects/${projectId}/screening/undo`, {
+        method: "POST",
+        ...json({ batch_id: batchId }),
+      }),
+    onSettled: refresh,
+    onError: (e) => reportError(errText(e, "Could not undo the AI decisions.")),
+  });
   if (!status.data) return null;
   const s = status.data;
   const count = (m: Partial<Record<Band, number>>) => Object.values(m).reduce((a, b) => a + (b ?? 0), 0);
-  const lexN = count(s.counts.lexical);
   const aiN = count(s.counts.llm);
   const msg = s.last_result?.message as string | null | undefined;
+  const aiDecisions = s.last_result?.ai_decisions as
+    { include: number; exclude: number; uncertain: number; kept_human: number } | undefined;
+  const aiBatch = s.last_result?.ai_decision_batch_id as string | undefined;
+  const running = activeId !== null;
+  const j = job.data;
   return (
     <section aria-labelledby="rel-h" className="rounded border border-line px-4 py-3">
       <h2 id="rel-h" className="section-title mb-2">
-        Relevance assessment
+        Screen with AI
       </h2>
-      <p className="max-w-prose text-sm text-muted">
-        Relevance orders the queue; it never decides. Word overlap ({s.methods.lexical}) compares the records
-        with your approved questions and search concepts: {lexN} of {s.total_papers} records scored.
-        {s.llm.configured
-          ? ` AI assessment (${s.llm.model}, ${s.methods.llm}): ${aiN} of ${s.total_papers} records assessed.`
-          : " No AI model is configured on this server."}
-      </p>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="btn-secondary"
-          disabled={!canWrite || Boolean(wasActive) || start.isPending}
-          onClick={() => start.mutate({ use_llm: false })}
-        >
-          {lexN < s.total_papers ? "Score word overlap" : "Rescore new records"}
-        </button>
-        {s.llm.configured && (
-          <button
-            type="button"
-            className="btn"
-            disabled={!canWrite || Boolean(wasActive) || start.isPending || !ack}
-            onClick={() => start.mutate({ use_llm: true })}
-          >
-            {aiN > 0 ? "Continue AI assessment" : "Run AI assessment"}
-          </button>
-        )}
-        {wasActive && (
-          <span className="text-sm text-muted">Assessing… progress is shown at the top right.</span>
-        )}
-      </div>
-      {s.llm.configured && (
-        <label className="mt-2 flex max-w-prose items-start gap-2 text-xs text-muted">
-          <input
-            type="checkbox"
-            className="mt-0.5 accent-mark"
-            checked={ack}
-            onChange={(e) => setAck(e.target.checked)}
+      {!s.llm.configured ? (
+        <p className="max-w-prose text-sm text-muted">
+          Connect an AI model in Settings to have the AI read the {s.total_papers} records for you. Records
+          are sorted by word overlap with your protocol in the meantime.
+        </p>
+      ) : running ? (
+        <div aria-live="polite">
+          <p className="flex items-center gap-2 text-sm">
+            <span className="spin inline-block h-3.5 w-3.5 rounded-full border-2 border-mark border-t-transparent" />
+            {j?.cancel_requested
+              ? "Stopping after the papers being read now…"
+              : (j?.progress_message ?? "Starting the AI…")}
+          </p>
+          <progress
+            className="mt-2 h-1.5 w-full max-w-md accent-mark"
+            max={100}
+            value={j?.progress ?? 0}
+            aria-label="AI screening progress"
           />
-          <span>
-            I understand what is sent: {s.llm.data_sent} {s.llm.provider_notice}
-          </span>
-        </label>
+          <div className="mt-2">
+            <button
+              type="button"
+              className="btn-ghost"
+              disabled={!canWrite || cancel.isPending || j?.cancel_requested}
+              onClick={() => activeId && cancel.mutate(activeId)}
+            >
+              Stop
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="max-w-prose text-sm">
+            {aiN > 0
+              ? `The AI has read ${aiN} of ${s.total_papers} records.`
+              : `Let the AI read the ${s.total_papers} records and sort them by relevance.`}
+          </p>
+          <label className="mt-2 flex max-w-prose items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1 accent-mark"
+              checked={autoDecide}
+              onChange={(e) => setAutoDecide(e.target.checked)}
+            />
+            <span>
+              Let the AI make the include / exclude / uncertain decisions
+              <span className="block text-xs text-muted">
+                Only for records you haven&apos;t decided. Every AI decision is labelled with its reason, and
+                you can change any of them or undo them all.
+              </span>
+            </span>
+          </label>
+          <label className="mt-2 flex max-w-prose items-start gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              className="mt-0.5 accent-mark"
+              checked={ack}
+              onChange={(e) => setAck(e.target.checked)}
+            />
+            <span>
+              Send titles, abstracts and my protocol to {s.llm.model}.{" "}
+              <details className="inline">
+                <summary className="inline cursor-pointer underline">Details</summary>
+                <span className="block">
+                  {s.llm.data_sent} {s.llm.provider_notice}
+                </span>
+              </details>
+            </span>
+          </label>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn-accept"
+              disabled={!canWrite || start.isPending || !ack}
+              onClick={() => start.mutate({ use_llm: true, auto_decide: autoDecide })}
+            >
+              {autoDecide
+                ? "Let AI screen the records"
+                : aiN > 0
+                  ? "Continue AI assessment"
+                  : "Run AI assessment"}
+            </button>
+            {!ack && <span className="text-xs text-muted">Tick the box above first.</span>}
+          </div>
+        </>
       )}
-      {msg && <p className="mt-2 text-sm text-mark">{msg}</p>}
-      {s.last_error && <p className="mt-2 text-sm text-danger">{s.last_error}</p>}
+      {!running && aiDecisions && aiDecisions.include + aiDecisions.exclude + aiDecisions.uncertain > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm" data-testid="ai-decisions">
+          <span>AI decided:</span>
+          <span className="badge-accept">{aiDecisions.include} include</span>
+          <span className="badge-reject">{aiDecisions.exclude} exclude</span>
+          <span className="badge-uncertain">{aiDecisions.uncertain} uncertain</span>
+          {aiDecisions.kept_human > 0 && (
+            <span className="text-xs text-muted">
+              {aiDecisions.kept_human} you had decided were left as they were
+            </span>
+          )}
+          {aiBatch && (
+            <button
+              type="button"
+              className="btn-ghost"
+              disabled={!canWrite || undoAi.isPending}
+              onClick={() => undoAi.mutate(aiBatch)}
+            >
+              Undo all AI decisions
+            </button>
+          )}
+        </div>
+      )}
+      {!running && msg && <p className="mt-2 text-sm text-mark">{msg}</p>}
+      {!running && s.last_error && <p className="mt-2 text-sm text-danger">{s.last_error}</p>}
       {s.model_runs.length > 0 && (
         <details className="mt-2 text-xs">
           <summary className="cursor-pointer text-muted">Recent AI calls ({s.model_runs.length})</summary>
           <ul className="mt-1 flex flex-col gap-0.5">
             {s.model_runs.map((r) => (
               <li key={r.id}>
-                {fmtDate(r.created_at)} · {r.model} · {r.prompt_version} · {r.item_count} records ·{" "}
+                {fmtDate(r.created_at)} · {r.model} · {r.item_count} records ·{" "}
                 <span className={r.status === "failed" ? "text-danger" : "text-ink"}>{r.status}</span>
-                {r.input_tokens !== null && ` · ${r.input_tokens}+${r.output_tokens ?? 0} tokens`}
                 {r.duration_ms !== null && ` · ${(r.duration_ms / 1000).toFixed(1)} s`}
                 {r.error_summary && <span className="block text-muted">{r.error_summary}</span>}
               </li>
@@ -490,6 +591,9 @@ export default function ScreeningPanel({
   const [sort, setSort] = useState("relevance");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // "Select all N matching records": every page, minus the ones unticked afterwards (`except`).
+  const [allMatching, setAllMatching] = useState(false);
+  const [except, setExcept] = useState<Set<string>>(new Set());
   const [bulkExclude, setBulkExclude] = useState(false);
   const [lastBatch, setLastBatch] = useState<{ id: string; count: number; label: string } | null>(null);
 
@@ -516,10 +620,25 @@ export default function ScreeningPanel({
     mutationFn: (b: { decision: HumanDecision; reason_code?: string | null; note?: string | null }) =>
       apiFetch<{ batch_id: string | null; changed: number }>(`/projects/${projectId}/screening/bulk`, {
         method: "POST",
-        ...json({ ...b, paper_ids: [...selected] }),
+        ...json(
+          allMatching
+            ? {
+                ...b,
+                all_matching: {
+                  decision: decision || null,
+                  band: band || null,
+                  suggestion: suggestion || null,
+                  q: applied || null,
+                  except_ids: [...except],
+                },
+              }
+            : { ...b, paper_ids: [...selected] },
+        ),
       }),
     onSuccess: (r, b) => {
       setSelected(new Set());
+      setAllMatching(false);
+      setExcept(new Set());
       setBulkExclude(false);
       setLastBatch(
         r.batch_id ? { id: r.batch_id, count: r.changed, label: DECISION_LABELS[b.decision] } : null,
@@ -577,8 +696,17 @@ export default function ScreeningPanel({
     fn();
     setOffset(0);
     setSelected(new Set());
+    setAllMatching(false);
+    setExcept(new Set());
   };
-  const allOnPage = q.items.length > 0 && q.items.every((i) => selected.has(i.paper_id));
+  const isSelected = (id: string) => (allMatching ? !except.has(id) : selected.has(id));
+  const allOnPage = q.items.length > 0 && q.items.every((i) => isSelected(i.paper_id));
+  const selectedCount = allMatching ? q.total - except.size : selected.size;
+  const clearSelection = () => {
+    setSelected(new Set());
+    setAllMatching(false);
+    setExcept(new Set());
+  };
 
   return (
     <div className="flex max-w-4xl flex-col gap-5">
@@ -682,6 +810,15 @@ export default function ScreeningPanel({
             className="accent-mark"
             checked={allOnPage}
             onChange={(e) => {
+              if (allMatching) {
+                const next = new Set(except);
+                for (const i of q.items) {
+                  if (e.target.checked) next.delete(i.paper_id);
+                  else next.add(i.paper_id);
+                }
+                setExcept(next);
+                return;
+              }
               const next = new Set(selected);
               for (const i of q.items) {
                 if (e.target.checked) next.add(i.paper_id);
@@ -693,34 +830,46 @@ export default function ScreeningPanel({
           Select this page
         </label>
         <span className="text-muted">
-          {q.total} record{q.total === 1 ? "" : "s"} shown · {selected.size} selected
+          {q.total} record{q.total === 1 ? "" : "s"} shown ·{" "}
+          <span className="text-ink">{selectedCount} selected</span>
         </span>
-        {selected.size > 0 && (
-          <span className="flex flex-wrap gap-2" role="group" aria-label="Bulk decision">
+        {!allMatching && allOnPage && q.total > q.items.length && (
+          <button type="button" className="text-link underline" onClick={() => setAllMatching(true)}>
+            Select all {q.total} records (every page)
+          </button>
+        )}
+        {selectedCount > 0 && (
+          <button type="button" className="btn-ghost text-xs" onClick={clearSelection}>
+            Clear selection
+          </button>
+        )}
+        {selectedCount > 0 && (
+          <span className="flex w-full flex-wrap gap-2" role="group" aria-label="Bulk decision">
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-accept"
               disabled={!canWrite || bulk.isPending}
               onClick={() => bulk.mutate({ decision: "include" })}
             >
-              Include selected
+              Include {selectedCount}
             </button>
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-reject"
               disabled={!canWrite || bulk.isPending}
               onClick={() => setBulkExclude(true)}
             >
-              Exclude selected…
+              Exclude {selectedCount}…
             </button>
             <button
               type="button"
-              className="btn-secondary"
+              className="btn-uncertain"
               disabled={!canWrite || bulk.isPending}
               onClick={() => bulk.mutate({ decision: "uncertain" })}
             >
-              Mark selected uncertain
+              Mark {selectedCount} uncertain
             </button>
+            {bulk.isPending && <span className="self-center text-xs text-muted">Saving…</span>}
           </span>
         )}
         {lastBatch && (
@@ -764,8 +913,15 @@ export default function ScreeningPanel({
               item={item}
               reasons={reasons.data?.items ?? []}
               requireReason={reasons.data?.require_reason ?? false}
-              selected={selected.has(item.paper_id)}
+              selected={isSelected(item.paper_id)}
               onSelect={(v) => {
+                if (allMatching) {
+                  const next = new Set(except);
+                  if (v) next.delete(item.paper_id);
+                  else next.add(item.paper_id);
+                  setExcept(next);
+                  return;
+                }
                 const next = new Set(selected);
                 if (v) next.add(item.paper_id);
                 else next.delete(item.paper_id);

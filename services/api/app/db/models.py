@@ -186,6 +186,8 @@ class Job(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="3")
     cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # Set when the person paused this step (a remembered cancel); a continuation job points back via rerun_of_job_id.
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_summary: Mapped[str | None] = mapped_column(Text)
     rerun_of_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL")
@@ -494,7 +496,15 @@ SEARCH_TIERS = ("open_access", "additional")
 SEARCH_RUN_STATUSES = ("queued", "running", "completed", "partial", "failed", "cancelled")
 SEARCH_RUN_ACTIVE = ("queued", "running")
 SEARCH_QUERY_STATUSES = ("pending", "running", "completed", "capped", "partial", "failed", "cancelled")
-EXPRESSION_SOURCES = ("search_strategy", "framework_elements", "objective", "topic", "user_edited")
+EXPRESSION_SOURCES = (
+    "search_strategy",
+    "framework_elements",
+    "ai",
+    "objective",
+    "objective_topic",
+    "topic",
+    "user_edited",
+)
 BROADEN_DECISIONS = ("yes", "no", "later")
 MATCH_BASES = ("doi", "pmid", "arxiv_id", "openalex_id", "title_author_year", "new")
 OA_STATUSES = ("open", "closed", "unknown")

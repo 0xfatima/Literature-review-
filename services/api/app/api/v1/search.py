@@ -28,6 +28,7 @@ from app.schemas.search import (
     SearchRunList,
     SearchRunOut,
     SearchSummary,
+    SuggestExpressionRequest,
 )
 from app.services import document_service, paper_service, search_service
 
@@ -64,7 +65,7 @@ def preview_search(
 
 @router.post("/search/suggest-expression", response_model=SearchPlan)
 def suggest_expression(
-    body: SearchPlanRequest,
+    body: SuggestExpressionRequest,
     project: Project = Depends(get_owned_project),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -75,7 +76,7 @@ def suggest_expression(
     allowed, retry = limiter.hit(f"suggest-expr:{user.id}", settings.rate_limit_assistant_per_hour, 3600)
     if not allowed:
         raise RateLimited(retry)
-    search_service.regenerate_ai_expression(db, settings, project, user)
+    search_service.regenerate_ai_expression(db, settings, project, user, body.guidance)
     plan = search_service.build_plan(
         db, settings, project, tier=body.tier, expression=None, provider_keys=body.providers, user=user
     )

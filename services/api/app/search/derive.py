@@ -37,7 +37,10 @@ STOPWORDS = frozenset(
     study literature evidence scoping meta analysis among its may might should could would effectiveness efficacy
     association associated relationship influence factors outcomes outcome investigate investigating examine
     examining explore exploring assess assessing evaluate evaluating determine understanding towards toward via per
-    such based new current recent research paper papers article articles""".split()
+    such based new current recent research paper papers article articles understand understanding much many
+    right now today currently whether well good best ways way make makes made need needs know known learn
+    aim aims objective objectives goal goals purpose identify identifying describe describing review overview
+    state art level extent degree really actually""".split()
 )
 
 # Language names -> (ISO 639-1, ISO 639-2/B). Used by providers that filter on language.
@@ -82,7 +85,7 @@ _ISO2 = {v[1]: v for v in LANGUAGES.values()}
 @dataclass
 class Derived:
     expression: str
-    source: str  # search_strategy | framework_elements | objective | topic
+    source: str  # search_strategy | framework_elements | ai | objective | objective_topic | topic | none
     explanation: list[str] = field(default_factory=list)
 
 
@@ -161,15 +164,73 @@ def key_phrases(text: str, limit: int = MAX_CONCEPTS) -> list[str]:
     for words in chunks:
         if len(words) == 1 and len(words[0]) <= 2:
             continue
-        if len(words) <= MAX_PHRASE_WORDS:
-            term = words[0] if len(words) == 1 else '"' + " ".join(words) + '"'
-        else:  # long runs are rarely a fixed phrase: require their first and last content words instead
-            term = f"({words[0]} AND {words[-1]})"
-        if term not in out:
+        term = _run_term(words)
+        if term and term not in out:
             out.append(term)
         if len(out) >= limit:
             break
     return out
+
+
+def _stem(word: str) -> str:
+    """Adverbs and -able adjectives are searched by their stem with truncation (clinically -> clinic*), so a rough
+    keyword query does not demand one exact word form."""
+    for suffix in ("ically", "ally", "able", "ly"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            cut = len(word) - len(suffix) + (2 if suffix == "ically" else 0)
+            return word[:cut] + "*"
+    return word
+
+
+def _run_term(words: list[str]) -> str | None:
+    """A run of content words -> one query term. Short runs of plain words stay a phrase ("social media");
+    runs with adverbs/-able words, or long runs, become an AND of (stemmed) words."""
+    if not words:
+        return None
+    if len(words) == 1:
+        return _stem(words[0])
+    stems = [_stem(w) for w in words]
+    if len(words) <= MAX_PHRASE_WORDS and stems == words:
+        return '"' + " ".join(words) + '"'
+    kept = list(dict.fromkeys(stems))[:5]
+    return "(" + " AND ".join(kept) + ")"
+
+
+_ACRONYM = re.compile(r"\b([A-Z][A-Z0-9]{1,6})s?\b")
+
+
+def acronym_expansions(*texts: str) -> dict[str, str]:
+    """Acronyms written in capitals (QML, RCT) mapped to an expansion found in the same texts by initials
+    ("quantum machine learning"). Only expansions actually written by the researcher are used."""
+    acronyms = {m.group(1) for t in texts for m in _ACRONYM.finditer(t or "") if m.group(1) not in q.OPERATORS}
+    words = [w for t in texts for w in re.findall(r"[A-Za-z][\w\-']*", t or "")]
+    out: dict[str, str] = {}
+    for acr in acronyms:
+        n = len(acr)
+        letters = acr.lower()
+        for i in range(len(words) - n + 1):
+            run = words[i : i + n]
+            if "".join(w[0].lower() for w in run) == letters and not any(w.lower() in STOPWORDS for w in run):
+                out[acr.lower()] = " ".join(w.lower() for w in run)
+                break
+    return out
+
+
+def keyword_concepts(texts: list[str], limit: int = MAX_CONCEPTS) -> list[str]:
+    """Key phrases of several texts (most important first), with acronyms ORed with their written expansion:
+    "quantum machine learning" and "QML" become ("quantum machine learning" OR qml), one concept."""
+    exp = acronym_expansions(*texts)
+    groups: dict[str, str] = {acr: f'("{full}" OR {acr})' for acr, full in exp.items()}
+    out: list[str] = []
+    for text in texts:
+        lowered = text or ""
+        for acr, full in exp.items():  # carve each expansion out of the text so it is never split or merged
+            lowered = re.sub(re.escape(full), f" , {acr} , ", lowered, flags=re.IGNORECASE)
+        for term in key_phrases(lowered, limit=limit * 2):
+            term = groups.get(term, term)
+            if term not in out:
+                out.append(term)
+    return out[:limit]
 
 
 def _term(piece: str) -> str | None:
@@ -249,18 +310,33 @@ def derive(content: dict[str, Any], topic: str, ai: Derived | None = None) -> De
                 )
             return Derived(expr, "framework_elements", why)
 
-    for source, text in (("objective", content.get("objective") or ""), ("topic", topic)):
-        phrases = key_phrases(text)
-        if phrases:
-            expr = " AND ".join(phrases)
-            if _valid(expr):
-                return Derived(
-                    expr,
-                    source,
-                    [
-                        note,
-                        f"Built from the key phrases of the {source} (a rough query: synonyms are missing). Review "
-                        "and edit it, or connect an AI model in Settings to have a full Boolean strategy built.",
-                    ],
-                )
+    objective = str(content.get("objective") or "")
+    questions = " ; ".join(str(qn.get("text") or "") for qn in content.get("questions") or [] if isinstance(qn, dict))
+    # The objective alone is often too thin ("understand the impact of QML"): when it gives fewer than two
+    # concepts, the topic and the review questions fill in (acronyms are matched to their expansions across all).
+    candidates: list[tuple[str, list[str]]] = [
+        ("objective", [objective]),
+        ("objective_topic", [topic, objective, questions]),
+        ("topic", [topic, questions]),
+    ]
+    for source, texts in candidates:
+        if not any(t.strip() for t in texts) or (source.startswith("objective") and not objective.strip()):
+            continue
+        phrases = keyword_concepts(texts)
+        if source == "objective" and len(phrases) < 2 and (topic.strip() or questions.strip()):
+            continue
+        if not phrases:
+            continue
+        expr = " AND ".join(phrases)
+        if _valid(expr):
+            label = {"objective": "objective", "objective_topic": "topic and objective", "topic": "topic"}[source]
+            return Derived(
+                expr,
+                source,
+                [
+                    note,
+                    f"Built from the key phrases of the {label} (a rough query: synonyms are missing). Review "
+                    "and edit it, or connect an AI model in Settings to have a full Boolean strategy built.",
+                ],
+            )
     return Derived("", "none", [note, "No search terms could be derived. Write the search expression yourself."])

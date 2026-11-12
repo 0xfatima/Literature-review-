@@ -58,6 +58,7 @@ def get_or_create(
     user: User | None = None,
     force: bool = False,
     gateway: LLMGateway | None = None,
+    guidance: str | None = None,
 ) -> tuple[derive.Derived | None, str | None]:
     if not _enabled(settings, content):
         return None, None
@@ -79,7 +80,7 @@ def get_or_create(
             "protocol, with synonyms for every concept."
         )
     try:
-        sug = llm_query.suggest(gw, content, project.topic_original)
+        sug = llm_query.suggest(gw, content, project.topic_original, guidance)
     except LLMError as e:
         note = f"The AI model could not build the search expression ({e.message}); the rule-based query is shown."
         with _lock:
@@ -100,6 +101,8 @@ def get_or_create(
     if row is None:
         row = SearchExpressionSuggestion(protocol_version_id=approved.id)
         db.add(row)
+    if guidance and guidance.strip():
+        sug.notes.append(f"Adjusted to your request: {' '.join(guidance.split())[:200]}")
     row.expression, row.concepts, row.notes = sug.expression, sug.concepts, sug.notes
     row.provider, row.model = (sug.provider or "unknown")[:32], (sug.model or "unknown")[:200]
     audit_service.record(

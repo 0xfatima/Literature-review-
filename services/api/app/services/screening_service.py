@@ -13,6 +13,7 @@ Audit events carry ids, decisions and reason codes only (never the note text).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -30,6 +31,7 @@ from app.services import audit_service, prisma_sync, protocol_service, workflow_
 
 STAGE = "title_abstract"
 MAX_BULK = 200
+MAX_BULK_ALL = 5000  # "select every record matching these filters"
 SORTS = ("relevance", "relevance_asc", "year", "title", "recent_decision")
 DECISION_FILTERS = ("undecided", "include", "exclude", "uncertain")
 SUGGESTION_FILTERS = ("include", "exclude", "uncertain", "none")
@@ -328,6 +330,34 @@ def decide(
     return {"decision_id": d.id, "unchanged": False}
 
 
+def matching_ids(
+    db: Session,
+    project: Project,
+    *,
+    decision: str | None,
+    band: str | None,
+    suggestion: str | None,
+    text: str | None,
+    exclude_ids: list[uuid.UUID] | None = None,
+) -> list[uuid.UUID]:
+    """Every paper the queue would show with these filters (all pages), for "select all N records"."""
+    view = queue(
+        db,
+        project,
+        decision=decision,
+        band=band,
+        suggestion=suggestion,
+        text=text,
+        flagged=None,
+        sort="relevance",
+        offset=0,
+        limit=MAX_BULK_ALL + 1,
+    )
+    skip = set(exclude_ids or [])
+    ids = [uuid.UUID(str(i["paper_id"])) for i in view["items"]]
+    return [i for i in ids if i not in skip]
+
+
 def bulk(
     db: Session,
     settings: Settings,
@@ -338,13 +368,32 @@ def bulk(
     decision: str,
     reason_code: str | None,
     note: str | None,
+    all_matching: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     protocol_service.require_writable(project)
     pv = approved_or_fail(db, project)
     _require_quiet(db, project)
-    ids = list(dict.fromkeys(paper_ids))
-    if not ids or len(ids) > MAX_BULK:
-        raise ValidationFailed(f"Select 1-{MAX_BULK} records.", details=[{"field": "paper_ids", "issue": "count"}])
+    if all_matching is not None:
+        ids = matching_ids(
+            db,
+            project,
+            decision=all_matching.get("decision") or None,
+            band=all_matching.get("band") or None,
+            suggestion=all_matching.get("suggestion") or None,
+            text=all_matching.get("q") or None,
+            exclude_ids=list(all_matching.get("except_ids") or []),
+        )
+        if len(ids) > MAX_BULK_ALL:
+            raise ValidationFailed(
+                f"More than {MAX_BULK_ALL} records match. Narrow the filters first.",
+                details=[{"field": "all_matching", "issue": "count"}],
+            )
+        if not ids:
+            raise ValidationFailed("No records match these filters.", details=[{"field": "all_matching"}])
+    else:
+        ids = list(dict.fromkeys(paper_ids))
+        if not ids or len(ids) > MAX_BULK:
+            raise ValidationFailed(f"Select 1-{MAX_BULK} records.", details=[{"field": "paper_ids", "issue": "count"}])
     found = {p.id for p in repo.papers_in_project(db, project.id, ids)}
     if len(found) != len(ids):
         raise NotFound("One or more selected records were not found in this project.")
@@ -370,6 +419,58 @@ def bulk(
         )
     db.commit()
     return {"batch_id": batch_id if changed else None, "changed": changed, "unchanged": len(ids) - changed}
+
+
+def _ai_reason(detail: dict[str, Any] | None, options: list[rules.Reason]) -> tuple[str | None, str | None]:
+    """The protocol reason behind an AI exclusion: the first criterion it found violated with a verified quote."""
+    codes = {r.code: r for r in options}
+    for c in (detail or {}).get("criteria") or []:
+        if not c.get("quote_verified") or not c.get("criterion_key"):
+            continue
+        if c.get("kind") == "exclusion" and c.get("judgement") == "met":
+            code = f"exclusion:{c['criterion_key']}"
+        elif c.get("kind") == "inclusion" and c.get("judgement") == "not_met":
+            code = f"inclusion:{c['criterion_key']}"
+        else:
+            continue
+        if code in codes:
+            return code, codes[code].label[:500]
+    return None, None
+
+
+def record_ai_decisions(
+    db: Session,
+    project: Project,
+    user: User,
+    pv: ProtocolVersion,
+    items: Sequence[tuple[uuid.UUID, str, dict[str, Any] | None]],
+    *,
+    batch_id: uuid.UUID,
+    model: str,
+) -> dict[str, int]:
+    """Turn AI eligibility suggestions into screening decisions, on the user's explicit request ("let the AI
+    screen"). Never overwrites a decision a person already made; every AI decision carries an "AI screening" note,
+    shares one batch id per job (so the whole lot can be undone in one step) and stays reviewable and editable.
+    The caller commits."""
+    counts = {"include": 0, "exclude": 0, "uncertain": 0, "kept_human": 0}
+    if protocol_service.draft(db, project) is not None:
+        return counts  # a protocol revision is in progress: decisions would be made against the wrong criteria
+    options = rules.reason_options(protocol_service.to_content(pv))
+    for paper_id, suggestion, detail in items:
+        if suggestion not in rules.HUMAN_DECISIONS:
+            continue
+        st = repo.state_for(db, paper_id, lock=True)
+        if st is not None and st.decision != "cleared":
+            counts["kept_human"] += 1
+            continue
+        why = " ".join(str((detail or {}).get("reason") or "").split())
+        note = f"AI screening ({model[:60]}): {why or 'no reason given'}"[: rules.MAX_NOTE]
+        code, label = _ai_reason(detail, options) if suggestion == "exclude" else (None, None)
+        _append(db, project, user, pv, paper_id, suggestion, (code, label, note), action="bulk", batch_id=batch_id)
+        counts[suggestion] += 1
+    if counts["include"] + counts["exclude"] + counts["uncertain"]:
+        _advance_stage(db, project, user)
+    return counts
 
 
 def undo(
