@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import { decisionButton } from "@/components/common/decisionStyle";
+import OpenAccessTag from "@/components/common/OpenAccessTag";
+import OpenAccessBox from "@/components/fulltext/OpenAccessBox";
 import {
   citeLabel,
   decisionProblem,
@@ -103,7 +105,8 @@ function QueueItem({
           </p>
           <p className="mt-1 text-xs">
             <span className={`font-medium ${STATUS_TONE[item.status]}`}>{FT_STATUS_LABELS[item.status]}</span>
-            <span className="text-muted"> · {FULL_TEXT_LABELS[item.full_text_status]}</span>
+            <span className="text-muted"> · {FULL_TEXT_LABELS[item.full_text_status]}</span>{" "}
+            <OpenAccessTag open={item.open_access} url={item.read_url} />
           </p>
           {item.reason_label && <p className="mt-1 text-xs">Reason: {item.reason_label}</p>}
           {item.note && <p className="mt-0.5 text-xs text-muted">Note: {item.note}</p>}
@@ -170,7 +173,7 @@ function QueueItem({
                   disabled={busy}
                   onClick={() => setMode({ kind: "not_retrieved" })}
                 >
-                  Could not get the full text…
+                  Mark as not obtainable…
                 </button>
               )}
             </>
@@ -320,6 +323,7 @@ export default function FullTextPanel({
           </p>
         </div>
 
+        <OpenAccessBox projectId={projectId} canWrite={canWrite} />
         {queue.isLoading && <p className="text-muted">Loading full-text screening…</p>}
         {queue.isError && <p className="text-danger">Could not load the full-text screening list.</p>}
         {reasons.isError && (

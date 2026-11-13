@@ -1,13 +1,16 @@
 """Relevance (NOT eligibility): how closely a record's title, keywords and abstract match the approved protocol's
 research questions and search concepts. Stdlib only, deterministic, fully explainable.
 
-Lexical method (`lexical-v1`):
-  * concepts = each framework search concept (population, intervention, ...; synonyms of one concept count as one
-    concept) and each approved research question (its content words);
-  * a concept's score = the share of its terms found in the record, scaled by WHERE they were found
-    (title 1.0, keywords 0.85, abstract only 0.7);
-  * the record's score (0-100) = the mean concept score. The explanation lists, per concept, the words that matched,
-    where, and the words that did not.
+Lexical method (`lexical-v2`):
+  * concepts = the concept groups of the search that found the records (each AND-ed OR-group of synonyms is one
+    concept, weighted double: it is what the search was about), each framework search concept (population,
+    intervention, ...; synonyms of one concept count as one concept) and each approved research question;
+  * a concept is fully met when its key words are found: all words of a short synonym, or any three words of a long
+    research question (v1 demanded every word of the question, so nearly everything scored "low");
+  * scaled by WHERE the words were found (title 1.0, keywords 0.9, abstract 0.8); truncated search terms (clinic*)
+    match any word with that stem;
+  * the record's score (0-100) = the weighted mean concept score. The explanation lists, per concept, the words that
+    matched, where, and the words that did not.
 A high score means "uses the same words as the questions". It says nothing about study design, population limits or
 any inclusion criterion: those are judged by the reviewer during screening.
 
@@ -25,8 +28,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 METHOD = "lexical"
-METHOD_VERSION = "lexical-v1"
-FIELD_WEIGHTS = {"title": 1.0, "keywords": 0.85, "abstract": 0.7}
+METHOD_VERSION = "lexical-v2"
+FIELD_WEIGHTS = {"title": 1.0, "keywords": 0.9, "abstract": 0.8}
+SATURATION = 3  # a concept with more words than this is fully met by any three of them
+SEARCH_CONCEPT_WEIGHT = 2.0
 BANDS = ("high", "moderate_high", "possible", "low", "insufficient", "not_assessed")
 BAND_LABELS = {
     "high": "High relevance",
@@ -36,7 +41,7 @@ BAND_LABELS = {
     "insufficient": "Insufficient metadata to judge",
     "not_assessed": "Not yet assessed",
 }
-LEXICAL_THRESHOLDS = ((60, "high"), (40, "moderate_high"), (20, "possible"))
+LEXICAL_THRESHOLDS = ((65, "high"), (40, "moderate_high"), (20, "possible"))
 LLM_THRESHOLDS = ((75, "high"), (55, "moderate_high"), (35, "possible"))
 SEARCH_CONCEPT_KEYS = frozenset({"population", "intervention", "exposure", "sample", "phenomenon"})
 
@@ -46,7 +51,10 @@ _STOP = frozenset(
     may might more most of on or other our over same should so such than that the their them then there these
     they this those through to under up use used using versus vs was we were what when where whether which while
     who whom why will with within without would compared comparison associated association impact role among
-    study studies review reviews systematic evidence literature research question questions""".split()
+    study studies review reviews systematic evidence literature research question questions much many right now
+    current currently today recent new understand understanding extent degree level well good best way ways make
+    made need needs know known aim aims objective purpose identify describe overview state art really
+    actually""".split()
 )
 
 
@@ -59,6 +67,7 @@ def stem(word: str) -> str:
     """A deliberately small suffix stripper (explainable; good enough to match 'depressive'/'depression')."""
     w = word
     for suf in (
+        "ically",
         "ization",
         "isation",
         "ations",
@@ -74,6 +83,11 @@ def stem(word: str) -> str:
         "ion",
         "ives",
         "ive",
+        "ably",
+        "able",
+        "ally",
+        "al",
+        "ly",
         "ies",
         "ers",
         "er",
@@ -82,7 +96,7 @@ def stem(word: str) -> str:
         "s",
     ):
         if w.endswith(suf) and len(w) - len(suf) >= 4:
-            return w[: -len(suf)]
+            return w[: -len(suf)] + ("ic" if suf == "ically" else "")
     return w
 
 
@@ -118,8 +132,85 @@ class Concept:
         return seen
 
 
-def concepts_from_protocol(content: dict[str, Any]) -> list[Concept]:
+def _split_top(expr: str, op: str) -> list[str]:
+    """Split a Boolean expression on a top-level operator (outside parentheses and quotes)."""
+    parts, depth, quoted, cur, i = [], 0, False, "", 0
+    token = f" {op} "
+    while i < len(expr):
+        ch = expr[i]
+        if ch == '"':
+            quoted = not quoted
+        elif not quoted and ch == "(":
+            depth += 1
+        elif not quoted and ch == ")":
+            depth -= 1
+        if not quoted and depth == 0 and expr.startswith(token, i):
+            parts.append(cur)
+            cur, i = "", i + len(token)
+            continue
+        cur += ch
+        i += 1
+    parts.append(cur)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _strip_parens(s: str) -> str:
+    s = s.strip()
+    while s.startswith("(") and s.endswith(")") and _split_top(s[1:-1], "AND") and s.count("(") == s.count(")"):
+        inner = s[1:-1].strip()
+        depth = 0
+        balanced = True
+        for ch in inner:
+            depth += ch == "("
+            depth -= ch == ")"
+            if depth < 0:
+                balanced = False
+                break
+        if not balanced:
+            break
+        s = inner
+    return s
+
+
+def _search_terms(text: str) -> list[str]:
+    """Content stems of one synonym; a trailing * keeps the stem as a prefix marker (clinic*)."""
+    out: list[str] = []
+    for raw in re.findall(r"[A-Za-z0-9][A-Za-z0-9\-]*\*?", text):
+        if raw.upper() in ("AND", "OR", "NOT"):
+            continue
+        trunc = raw.endswith("*")
+        word = _fold(raw.rstrip("*")).replace("-", "")
+        if len(word) <= 2 and not trunc:
+            if len(word) == 2 and raw.isupper():
+                out.append(word)
+            continue
+        if word in _STOP:
+            continue
+        term = (word if trunc else stem(word)) + ("*" if trunc else "")
+        if term not in out:
+            out.append(term)
+    return out
+
+
+def concepts_from_expression(expression: str | None) -> list[Concept]:
+    """The AND-ed concept groups of a search expression; each OR-ed synonym is one alternative group. NOT parts are
+    ignored."""
+    if not expression:
+        return []
     out: list[Concept] = []
+    for i, part in enumerate(_split_top(expression, "AND"), start=1):
+        part = _strip_parens(part)
+        if part.upper().startswith("NOT "):
+            continue
+        part = _split_top(part, "NOT")[0]
+        groups = [g for g in (_search_terms(_strip_parens(s)) for s in _split_top(part, "OR")) if g]
+        if groups:
+            out.append(Concept(f"search:{i}", f"Search concept {i}", "search_concept", groups, part[:300]))
+    return out[:6]
+
+
+def concepts_from_protocol(content: dict[str, Any], expression: str | None = None) -> list[Concept]:
+    out: list[Concept] = concepts_from_expression(expression)
     for el in content.get("framework_elements") or []:
         if not isinstance(el, dict) or not el.get("value"):
             continue
@@ -174,22 +265,36 @@ def assess(record: dict[str, Any], concepts: list[Concept]) -> Assessment:
                 "concepts": [],
             },
         )
+
+    def found(t: str, f: set[str]) -> bool:
+        if t.endswith("*"):
+            pre = t[:-1]
+            return any(w.startswith(pre) for w in f)
+        return t in f
+
     rows: list[dict[str, Any]] = []
     total = 0.0
+    weights = 0.0
     for c in concepts:
         best: tuple[float, list[str], list[str], str] = (0.0, [], [], "")  # score, matched, missing, where
         for g in c.groups:
-            matched = [t for t in g if any(t in f for f in fields.values())]
+            matched = [t for t in g if any(found(t, f) for f in fields.values())]
             if not matched:
                 continue
             where = next(
-                (name for name in ("title", "keywords", "abstract") if any(t in fields[name] for t in matched)),
+                (name for name in ("title", "keywords", "abstract") if any(found(t, fields[name]) for t in matched)),
                 "abstract",
             )
-            s = (len(matched) / len(g)) * FIELD_WEIGHTS[where]
+            need = len(g) if c.kind != "research_question" else min(len(g), SATURATION)
+            share = min(1.0, len(matched) / need)
+            if c.kind == "search_concept":
+                share = share * share  # a search phrase counts when it is all there; part of it counts little
+            s = share * FIELD_WEIGHTS[where]
             if s > best[0]:
                 best = (s, matched, [t for t in g if t not in matched], where)
-        total += best[0]
+        w = SEARCH_CONCEPT_WEIGHT if c.kind == "search_concept" else 1.0
+        total += best[0] * w
+        weights += w
         rows.append(
             {
                 "id": c.id,
@@ -202,7 +307,7 @@ def assess(record: dict[str, Any], concepts: list[Concept]) -> Assessment:
                 "best_field": best[3] or None,
             }
         )
-    score = round(100 * total / len(concepts))
+    score = round(100 * total / max(weights, 1.0))
     band = "insufficient" if insufficient else band_for(score, LEXICAL_THRESHOLDS)
     hit = sum(1 for r in rows if r["matched"])
     summary = (

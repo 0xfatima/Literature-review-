@@ -16,6 +16,10 @@ class SearchPlanRequest(BaseModel):
     tier: Tier = "open_access"
     expression: str | None = Field(default=None, max_length=2000)
     providers: list[str] | None = Field(default=None, max_length=10)
+    # How many papers the researcher wants in total: the search stops at max_records (split across the sources);
+    # fewer than min_records is reported so the search can be broadened.
+    max_records: int | None = Field(default=None, ge=10, le=10_000)
+    min_records: int | None = Field(default=None, ge=0, le=10_000)
 
 
 class SuggestExpressionRequest(SearchPlanRequest):
@@ -68,6 +72,7 @@ class SearchPlan(BaseModel):
     queries: list[PlannedQuery]
     ready: bool
     max_records_per_provider: int
+    record_limits: dict[str, Any] = Field(default_factory=dict)
     catalog: list[ProviderInfo] = []
 
 

@@ -14,13 +14,25 @@ export const BAND_LABELS: Record<Band, string> = {
 };
 
 /** Text colour + border classes. Greens for relevance, neutral grey for low/unknown (spec Phase 5). */
+/** Relevance colours, light tints that stay readable in light and dark mode: green = relevant, amber = maybe,
+ *  light red = low. The label and the dots carry the same meaning, so colour is never the only signal. */
 export const BAND_STYLES: Record<Band, string> = {
-  high: "border-[#4ADE80] text-[#4ADE80]",
-  moderate_high: "border-[#A3E635] text-[#A3E635]",
-  possible: "border-[#BBF7D0] text-[#BBF7D0]",
-  low: "border-line text-muted",
-  insufficient: "border-line text-muted",
-  not_assessed: "border-line text-muted",
+  high: "border-ok bg-ok/20 text-ok font-semibold",
+  moderate_high: "border-ok/60 bg-ok/10 text-ok",
+  possible: "border-warn/60 bg-warn/10 text-warn",
+  low: "border-danger/50 bg-danger/10 text-danger",
+  insufficient: "border-line bg-raised text-muted",
+  not_assessed: "border-line bg-raised text-muted",
+};
+
+/** A coloured left edge on each record, so relevance can be scanned down the list at a glance. */
+export const BAND_EDGES: Record<Band, string> = {
+  high: "border-l-4 border-l-ok",
+  moderate_high: "border-l-4 border-l-ok/50",
+  possible: "border-l-4 border-l-warn/70",
+  low: "border-l-4 border-l-danger/60",
+  insufficient: "border-l-4 border-l-line",
+  not_assessed: "border-l-4 border-l-line",
 };
 
 /** A shape cue that survives greyscale and colour-blindness. */

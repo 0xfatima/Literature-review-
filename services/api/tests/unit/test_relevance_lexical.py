@@ -1,4 +1,4 @@
-"""Transparent word-overlap relevance (lexical-v1). Relevance is not eligibility."""
+"""Transparent word-overlap relevance (lexical-v2). Relevance is not eligibility."""
 
 import pytest
 
@@ -64,7 +64,29 @@ def test_no_protocol_concepts_means_not_assessed():
 
 
 @pytest.mark.parametrize(
-    ("score", "band"), [(60, "high"), (59, "moderate_high"), (40, "moderate_high"), (20, "possible"), (19, "low")]
+    ("score", "band"), [(65, "high"), (64, "moderate_high"), (40, "moderate_high"), (20, "possible"), (19, "low")]
 )
 def test_lexical_band_thresholds(score, band):
     assert lex.band_for(score, lex.LEXICAL_THRESHOLDS) == band
+
+
+def test_search_concepts_drive_the_score_and_long_questions_saturate():
+    concepts = lex.concepts_from_protocol(
+        {"questions": [{"text": "How much is quantum machine learning clinically deployable right now?"}]},
+        '("quantum machine learning" OR qml) AND (clinic* AND deploy*)',
+    )
+    assert [c.kind for c in concepts] == ["search_concept", "search_concept", "research_question"]
+    on_topic = lex.assess(
+        {
+            "title": "Quantum technologies in clinical medicine",
+            "abstract": "Deploying quantum machine learning in hospitals.",
+            "keywords": [],
+        },
+        concepts,
+    )
+    partly = lex.assess(
+        {"title": "Quantum adversarial machine learning", "abstract": "Robust models.", "keywords": []}, concepts
+    )
+    off = lex.assess({"title": "Deep learning for crop yields", "abstract": "Farming.", "keywords": []}, concepts)
+    assert on_topic.band == "high" and partly.band == "moderate_high" and off.band == "low"
+    assert lex.stem("clinically") == lex.stem("clinical") == "clinic"

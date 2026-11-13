@@ -164,7 +164,22 @@ def _lexical(
     force: bool,
     only: list[uuid.UUID] | None = None,
 ) -> int:
-    concepts = lex.concepts_from_protocol(content)
+    from sqlalchemy import select
+
+    from app.db.models import SearchRun
+
+    # The search that found the records says best what they should be about (its concept groups and synonyms).
+    expression = db.scalar(
+        select(SearchRun.expression)
+        .where(
+            SearchRun.project_id == project_id,
+            SearchRun.protocol_version_id == pv_id,
+            SearchRun.status.in_(("completed", "partial")),
+        )
+        .order_by(SearchRun.created_at.desc())
+        .limit(1)
+    )
+    concepts = lex.concepts_from_protocol(content, expression)
     papers = repo.papers_needing(
         db, project_id, pv_id, "lexical", lex.METHOD_VERSION, force=force, limit=None, only=only
     )

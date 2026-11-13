@@ -26,6 +26,7 @@ TASK_FOR_TYPE = {
     "workflow.advance": "workflow.advance",
     "search.run": "search.run",
     "relevance.assess": "relevance.assess",
+    "fulltext.fetch_oa": "fulltext.fetch_oa",
     "document.process": "document.process",
     "extraction.run": "extraction.run",
     "appraisal.suggest": "appraisal.suggest",

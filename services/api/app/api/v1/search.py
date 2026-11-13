@@ -58,7 +58,15 @@ def preview_search(
 ) -> SearchPlan:
     """What a search would send to each provider, built from the approved protocol."""
     plan = search_service.build_plan(
-        db, settings, project, tier=body.tier, expression=body.expression, provider_keys=body.providers, user=user
+        db,
+        settings,
+        project,
+        tier=body.tier,
+        expression=body.expression,
+        provider_keys=body.providers,
+        user=user,
+        max_records=body.max_records,
+        min_records=body.min_records,
     )
     return SearchPlan(**plan, catalog=search_service.provider_catalog(settings))
 
@@ -120,6 +128,8 @@ def start_search_run(
         tier=body.tier,
         expression=body.expression,
         provider_keys=body.providers,
+        max_records=body.max_records,
+        min_records=body.min_records,
     )
     return _out(db, settings, project, run)
 

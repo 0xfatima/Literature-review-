@@ -69,13 +69,20 @@ function PlanEditor({
   const [expression, setExpression] = useState<string | null>(null); // null = use the protocol-derived query
   const [providers, setProviders] = useState<string[] | null>(null); // null = protocol defaults
   const [plan, setPlan] = useState<SearchPlan | null>(null);
+  // How many papers the person wants: blank = the server default per source.
+  const [maxRecords, setMaxRecords] = useState("");
+  const [minRecords, setMinRecords] = useState("");
+  const limits = () => {
+    const n = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v.trim()) : null);
+    return { max_records: n(maxRecords), min_records: n(minRecords) };
+  };
   const [planError, setPlanError] = useState<string | null>(null);
 
   const preview = useMutation({
     mutationFn: (body: { expression: string | null; providers: string[] | null }) =>
       apiFetch<SearchPlan>(`/projects/${projectId}/search/plan`, {
         method: "POST",
-        ...json({ tier, expression: body.expression, providers: body.providers }),
+        ...json({ tier, expression: body.expression, providers: body.providers, ...limits() }),
       }),
     onSuccess: (p) => {
       setPlan(p);
@@ -124,7 +131,7 @@ function PlanEditor({
     mutationFn: () =>
       apiFetch<SearchRun>(`/projects/${projectId}/search-runs`, {
         method: "POST",
-        ...json({ tier, expression, providers }),
+        ...json({ tier, expression, providers, ...limits() }),
       }),
     onSuccess: refresh,
     onError: (e) => reportError(errMessage(e, "Could not start the search.")),
@@ -138,6 +145,45 @@ function PlanEditor({
 
   return (
     <div className="flex flex-col gap-4">
+      <fieldset>
+        <legend className="section-title mb-2">How many papers</legend>
+        <div className="flex flex-wrap items-end gap-4 text-sm">
+          <label className="flex flex-col gap-1">
+            <span>At least</span>
+            <input
+              className="input w-28"
+              inputMode="numeric"
+              placeholder="e.g. 50"
+              value={minRecords}
+              disabled={!canWrite || disabled}
+              onChange={(e) => setMinRecords(e.target.value.replace(/[^0-9]/g, ""))}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span>At most</span>
+            <input
+              className="input w-28"
+              inputMode="numeric"
+              placeholder="e.g. 300"
+              value={maxRecords}
+              disabled={!canWrite || disabled}
+              onChange={(e) => setMaxRecords(e.target.value.replace(/[^0-9]/g, ""))}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!canWrite || disabled || preview.isPending}
+            onClick={() => preview.mutate({ expression, providers })}
+          >
+            Apply
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-muted">
+          The search stops at the maximum (shared across the sources). If it finds fewer than the minimum, you
+          are told and can broaden the query. Leave blank for the default.
+        </p>
+      </fieldset>
       <fieldset>
         <legend className="section-title mb-2">Sources</legend>
         <ul className="flex flex-col gap-2">

@@ -264,6 +264,7 @@ export interface SearchPlan {
   queries: PlannedQuery[];
   ready: boolean;
   max_records_per_provider: number;
+  record_limits?: { max_total?: number; per_provider?: number; min_total?: number };
   catalog: ProviderInfo[];
 }
 export interface SearchQueryRecord {
@@ -458,6 +459,9 @@ export interface Assessment {
 }
 export interface QueueItem {
   paper_id: string;
+  open_access?: boolean;
+  oa_status?: string;
+  read_url?: string | null;
   title: string;
   authors: string[];
   author_count: number;
@@ -1209,6 +1213,17 @@ export interface ReportBrief {
   author_count: number;
   full_text_status: "not_obtained" | "uploaded" | "parsed" | "failed";
   study_id: string | null;
+  open_access?: boolean;
+  oa_status?: string;
+  read_url?: string | null;
+}
+/** GET /projects/{id}/fulltext/open-access */
+export interface OpenAccessSummary {
+  awaiting: number;
+  without_pdf: number;
+  open_access_without_pdf: number;
+  needs_your_pdf: number;
+  fetchable: number;
 }
 export interface FtQueueItem extends ReportBrief {
   status: FtStatus;
