@@ -98,23 +98,11 @@ a {
   .btn-danger {
     @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-danger/60 px-3 py-1.5 text-sm text-danger hover:bg-danger/10;
   }
-  /* Sign-in backdrop and illustration panel: warm gradients built from the accent colour. */
-  .auth-backdrop {
-    background:
-      radial-gradient(60rem 40rem at 10% 0%, rgb(var(--mark) / 0.18), transparent 60%),
-      radial-gradient(50rem 40rem at 100% 100%, rgb(var(--danger) / 0.1), transparent 60%), rgb(var(--panel));
-  }
-  .auth-art {
-    background:
-      radial-gradient(30rem 20rem at 80% 10%, rgb(255 255 255 / 0.18), transparent 60%),
-      linear-gradient(150deg, rgb(var(--mark)) 0%, #6b3f00 55%, #3b2200 100%);
-  }
   .auth-input {
     @apply w-full rounded-xl border border-line bg-raised px-4 py-3 text-sm text-ink placeholder:text-muted focus:border-mark focus:outline-none focus:ring-2 focus:ring-mark/30;
   }
   .auth-submit {
-    @apply w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-md transition hover:brightness-110 disabled:opacity-60;
-    background: linear-gradient(90deg, rgb(var(--mark)), #b5651d);
+    @apply w-full rounded-xl bg-mark px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:opacity-60;
   }
   /* The Prismatic wordmark: lowercase italic display serif from the system (no web fonts are fetched). */
   .wordmark {

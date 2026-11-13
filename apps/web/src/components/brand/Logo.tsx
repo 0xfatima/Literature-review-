@@ -1,15 +1,21 @@
-/** Prismatic: a prism that splits one beam (the search) into the bands of a review (green = include, amber = maybe,
- *  red = exclude), next to a lowercase italic wordmark. Drawn in SVG and system serif fonts, so nothing is fetched. */
+/** Prismatic: a clear glass prism splitting one beam (the search) into muted bands (include / maybe / exclude),
+ *  next to a lowercase italic wordmark. SVG and system fonts only; nothing is fetched. */
 export function PrismMark({ size = 28, className = "" }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden className={className}>
-      <path d="M1 17.5 L11 15.6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity=".55" />
-      <path d="M14 4 L25 26 L3 26 Z" fill="rgb(var(--mark))" />
-      <path d="M14 4 L25 26 L14 26 Z" fill="rgb(var(--mark))" opacity=".75" />
-      <path d="M14 4 L18.5 13 L14 26 Z" fill="white" opacity=".22" />
-      <path d="M20 16.2 L31 12" stroke="rgb(var(--ok))" strokeWidth="2.2" strokeLinecap="round" />
-      <path d="M20.6 18.4 L31 17.6" stroke="rgb(var(--warn))" strokeWidth="2.2" strokeLinecap="round" />
-      <path d="M21 20.6 L31 23.2" stroke="rgb(var(--danger))" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M1 18 L10.6 16.2" stroke="#8a9bab" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M20.2 16.4 L31 12.6" stroke="#8fbf9f" strokeWidth="2" strokeLinecap="round" />
+      <path d="M20.7 18.4 L31 17.8" stroke="#d9bf7f" strokeWidth="2" strokeLinecap="round" />
+      <path d="M21.2 20.4 L31 23" stroke="#d99a96" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M14 4 L25 26 L3 26 Z"
+        fill="#dce6ef"
+        fillOpacity=".35"
+        stroke="#6f8597"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M14 4 L17.5 12 L14 26" fill="none" stroke="#6f8597" strokeOpacity=".45" strokeWidth="1" />
     </svg>
   );
 }
