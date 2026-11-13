@@ -121,6 +121,59 @@ def fetch_open_access(
     return JobOut.model_validate(job).model_dump()
 
 
+@router.post("/prisma/ft-bulk")
+def ft_bulk(
+    body: dict[str, Any],
+    project: Project = Depends(get_owned_project),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """One full-text decision for many reports (exclusion needs a reason_code)."""
+    raw = body.get("paper_ids") or []
+    if not isinstance(raw, list):
+        raw = []
+    try:
+        ids = [uuid.UUID(str(x)) for x in raw]
+    except ValueError:
+        ids = []
+    return prisma_service.ft_bulk(
+        db,
+        project_id=project.id,
+        user_id=user.id,
+        paper_ids=ids,
+        decision=str(body.get("decision") or ""),
+        reason_code=body.get("reason_code") or None,
+        note=(str(body.get("note"))[:2000] if body.get("note") else None),
+    )
+
+
+@router.get("/fulltext/ai-screen")
+def ft_ai_status(
+    project: Project = Depends(get_owned_project),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_user_settings),
+) -> dict[str, Any]:
+    from app.services import ft_ai_service
+
+    return ft_ai_service.status(db, settings, project)
+
+
+@router.post("/fulltext/ai-screen", status_code=202)
+def ft_ai_start(
+    project: Project = Depends(get_owned_project),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_user_settings),
+    dispatch: Callable[[str, str], None] = Depends(get_dispatcher),
+) -> dict[str, Any]:
+    """Let the AI read the available PDFs and decide include / exclude / uncertain."""
+    from app.schemas.jobs import JobOut
+    from app.services import ft_ai_service
+
+    job = ft_ai_service.start(db, settings, dispatch, user, project)
+    return JobOut.model_validate(job).model_dump()
+
+
 @router.post("/prisma/retrieval/{paper_id}")
 def mark_retrieval(
     paper_id: uuid.UUID,

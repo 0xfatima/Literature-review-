@@ -32,15 +32,19 @@ STEP_JOB_TYPES = (
     "search.run",
     "relevance.assess",
     "fulltext.fetch_oa",
+    "fulltext.ai_screen",
     "extraction.run",
     "appraisal.suggest",
     "synthesis.draft",
 )
-PAUSABLE = frozenset({"search.run", "relevance.assess", "fulltext.fetch_oa", "extraction.run", "appraisal.suggest"})
+PAUSABLE = frozenset(
+    {"search.run", "relevance.assess", "fulltext.fetch_oa", "fulltext.ai_screen", "extraction.run", "appraisal.suggest"}
+)
 STEP_LABELS = {
     "search.run": "The search",
     "relevance.assess": "AI screening",
     "fulltext.fetch_oa": "Fetching open-access PDFs",
+    "fulltext.ai_screen": "AI full-text screening",
     "extraction.run": "AI extraction",
     "appraisal.suggest": "AI appraisal",
     "synthesis.draft": "The synthesis draft",

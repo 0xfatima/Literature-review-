@@ -27,6 +27,7 @@ TASK_FOR_TYPE = {
     "search.run": "search.run",
     "relevance.assess": "relevance.assess",
     "fulltext.fetch_oa": "fulltext.fetch_oa",
+    "fulltext.ai_screen": "fulltext.ai_screen",
     "document.process": "document.process",
     "extraction.run": "extraction.run",
     "appraisal.suggest": "appraisal.suggest",

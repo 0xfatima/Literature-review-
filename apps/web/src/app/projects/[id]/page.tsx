@@ -1,4 +1,5 @@
 "use client";
+import { PrismMark } from "@/components/brand/Logo";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -401,6 +402,13 @@ function ProjectWorkspace({ id }: { id: string }) {
   const titleBar = (
     <>
       <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1 lg:flex-initial">
+        <Link
+          href="/projects"
+          aria-label="Prismatic home"
+          className="mr-1 shrink-0 no-underline hover:no-underline"
+        >
+          <PrismMark size={22} />
+        </Link>
         <Link
           href="/projects"
           className="hidden shrink-0 rounded-md px-2 py-1 text-sm text-muted no-underline hover:bg-raised hover:text-ink hover:no-underline sm:inline-block"
