@@ -2,6 +2,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import Icon from "@/components/ui/Icon";
+import FinishScreening from "@/components/screening/FinishScreening";
+import { friendlyAiError } from "@/lib/screening";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import type {
   Job,
@@ -257,6 +259,30 @@ function Searching({ run }: { run: SearchRun }) {
 
 type AiDecisions = { include: number; exclude: number; uncertain: number; kept_human: number };
 
+/** "I'll screen them myself" is remembered per project in this browser, so the chat stops offering the AI. */
+const manualKey = (projectId: string) => `srs:manual-screening:${projectId}`;
+function readManual(projectId: string): boolean {
+  try {
+    return window.localStorage.getItem(manualKey(projectId)) === "1";
+  } catch {
+    return false;
+  }
+}
+function writeManual(projectId: string, on: boolean) {
+  try {
+    if (on) window.localStorage.setItem(manualKey(projectId), "1");
+    else window.localStorage.removeItem(manualKey(projectId));
+  } catch {
+    /* storage unavailable: the choice lasts for this page only */
+  }
+}
+
+/** Quota and rate-limit stops, said plainly with what to do next. */
+function quotaHelp(msg: string | null | undefined): string | null {
+  if (!msg || !/rate limit|quota/i.test(msg)) return null;
+  return "Your AI provider's free limit for now is used up, so the AI stopped. Records it already sorted keep their scores. You can screen the rest yourself, or let the AI continue later (free limits usually reset within a minute for per-minute limits, or the next day for daily ones).";
+}
+
 function ScreeningStep({
   projectId,
   canWrite,
@@ -271,6 +297,11 @@ function ScreeningStep({
   const qc = useQueryClient();
   const [ack, setAck] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [manual, setManualState] = useState(() => readManual(projectId));
+  const setManual = (on: boolean) => {
+    writeManual(projectId, on);
+    setManualState(on);
+  };
   const rel = useQuery({
     queryKey: ["relevance", projectId],
     queryFn: () => apiFetch<RelevanceStatus>(`/projects/${projectId}/screening/relevance`),
@@ -378,14 +409,18 @@ function ScreeningStep({
           <span className="badge-uncertain">{decided.uncertain} uncertain</span>
         </div>
       )}
-      {stopMsg && <p className="mt-1 text-sm text-mark">{stopMsg}</p>}
-      {rel.data.last_error && <p className="mt-1 text-sm text-danger">{rel.data.last_error}</p>}
+      {!manual && stopMsg && <p className="mt-1 text-sm text-mark">{quotaHelp(stopMsg) ?? stopMsg}</p>}
+      {!manual && rel.data.last_error && (
+        <p className="mt-1 text-sm text-danger">{friendlyAiError(rel.data.last_error)}</p>
+      )}
 
       {progress.undecided === 0 ? (
         <>
           <p className="mt-2">
             Every record has a decision: {progress.include} included, {progress.exclude} excluded,{" "}
             {progress.uncertain} uncertain.
+            {progress.uncertain > 0 &&
+              ` Decide the ${progress.uncertain} uncertain record${progress.uncertain === 1 ? "" : "s"} to complete the step.`}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button type="button" className="btn-accept" onClick={() => openTab("screening")}>
@@ -394,6 +429,26 @@ function ScreeningStep({
             <button type="button" className="btn-secondary" onClick={() => openTab("fulltext")}>
               Next: full texts
             </button>
+          </div>
+        </>
+      ) : manual ? (
+        <>
+          <p className="mt-2">
+            You&apos;re screening yourself: <strong>{done}</strong> of {progress.total} decided (
+            {progress.include} included). Include the papers you want in the Screening step.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary" onClick={() => openTab("screening")}>
+              Open Screening
+            </button>
+            {ai.configured && (
+              <button type="button" className="btn-ghost text-xs" onClick={() => setManual(false)}>
+                Let the AI help instead
+              </button>
+            )}
+          </div>
+          <div className="mt-3 border-t border-line pt-3">
+            <FinishScreening projectId={projectId} progress={progress} canWrite={canWrite} />
           </div>
         </>
       ) : (
@@ -426,14 +481,28 @@ function ScreeningStep({
                 >
                   <Icon name="sparkle" size={14} /> {start.isPending ? "Starting…" : "Let the AI screen them"}
                 </button>
-                <button type="button" className="btn-secondary" onClick={() => openTab("screening")}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => {
+                    setManual(true);
+                    openTab("screening");
+                  }}
+                >
                   I&apos;ll screen them myself
                 </button>
               </div>
             </>
           ) : (
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <button type="button" className="btn" onClick={() => openTab("screening")}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setManual(true);
+                  openTab("screening");
+                }}
+              >
                 Start screening
               </button>
               <span className="text-xs text-muted">

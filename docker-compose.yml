@@ -32,7 +32,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       TRUSTED_PROXY_HOPS: "1"      # exactly one trusted hop: the nginx edge proxy (infra/proxy/nginx.conf)
       STORAGE_LOCAL_ROOT: /srv/storage   # overrides .env: inside the containers the shared volume is mounted here
-    command: ["alembic", "upgrade", "head"]
+    # After the schema, repair derived data that older versions could leave out of step (idempotent, fast).
+    command: ["sh", "-c", "alembic upgrade head && python -m app.cli resync-prisma"]
     depends_on: { postgres: { condition: service_healthy } }
     restart: "no"
 

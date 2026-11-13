@@ -53,3 +53,10 @@ export const FIELD_LABELS = { title: "title", keywords: "keywords", abstract: "a
 export function progressPercent(done: number, total: number): number {
   return total > 0 ? Math.round((100 * done) / total) : 0;
 }
+
+/** Job errors are written for logs; these are the ones people actually meet, in plain words. */
+export function friendlyAiError(e: string): string {
+  if (/worker lost/i.test(e))
+    return "The AI screening was interrupted (the app restarted while it ran). Start it again to continue; nothing already done is lost.";
+  return e;
+}

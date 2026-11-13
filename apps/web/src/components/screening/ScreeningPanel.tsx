@@ -1,6 +1,7 @@
 "use client";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import FinishScreening from "@/components/screening/FinishScreening";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import {
   BANDS,
@@ -11,6 +12,7 @@ import {
   FIELD_LABELS,
   JUDGEMENT_LABELS,
   SUGGESTION_LABELS,
+  friendlyAiError,
   progressPercent,
 } from "@/lib/screening";
 import { fmtDate } from "@/lib/search";
@@ -550,7 +552,9 @@ function RelevanceControls({ projectId, canWrite }: { projectId: string; canWrit
         </div>
       )}
       {!running && msg && <p className="mt-2 text-sm text-mark">{msg}</p>}
-      {!running && s.last_error && <p className="mt-2 text-sm text-danger">{s.last_error}</p>}
+      {!running && s.last_error && (
+        <p className="mt-2 text-sm text-danger">{friendlyAiError(s.last_error)}</p>
+      )}
       {s.model_runs.length > 0 && (
         <details className="mt-2 text-xs">
           <summary className="cursor-pointer text-muted">Recent AI calls ({s.model_runs.length})</summary>
@@ -729,6 +733,12 @@ export default function ScreeningPanel({
           Keyboard: focus any control in a record, then press I (include), E (exclude) or U (uncertain).
         </p>
       </section>
+
+      {done > 0 && p.undecided > 0 && (
+        <section aria-label="Finish screening" className="rounded border border-line px-4 py-3">
+          <FinishScreening projectId={projectId} progress={p} canWrite={canWrite} />
+        </section>
+      )}
 
       <RelevanceControls projectId={projectId} canWrite={canWrite} />
 

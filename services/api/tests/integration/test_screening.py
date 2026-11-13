@@ -441,3 +441,57 @@ def test_ai_screening_records_decisions_only_where_nobody_decided_and_can_be_und
     )
     assert u.json()["undone"] == 3
     assert queue(c, pid)["progress"]["undecided"] == 3
+
+
+def _screening_stage(c, pid):
+    stages = c.get(f"/api/v1/projects/{pid}/workspace/overview").json()["stages"]
+    return next(s for s in stages if s["key"] == "screening")
+
+
+def test_bulk_and_select_all_decisions_complete_the_screening_step(screened, db):
+    """Before, only one-record decisions reached the PRISMA flow, so bulk / AI decisions never completed the step."""
+    c, pid = screened
+    keep_item = item(c, pid, fx.T_W1)
+    keep = keep_item["paper_id"]
+    decide(c, pid, keep_item, "include")
+    r = c.post(
+        f"/api/v1/projects/{pid}/screening/bulk",
+        json={
+            "decision": "exclude",
+            "reason_code": "other",
+            "note": "Not selected during manual screening",
+            "all_matching": {"decision": "undecided"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    st = _screening_stage(c, pid)
+    assert st["status"] == "done", st
+
+    # marking one uncertain puts it back to awaiting screening, so the step is open again
+    other = next(i for i in queue(c, pid, decision="")["items"] if i["paper_id"] != keep)
+    decide(c, pid, other, "uncertain")
+    assert _screening_stage(c, pid)["status"] == "in_progress"
+
+
+def test_resync_repairs_decisions_that_never_reached_the_prisma_flow(screened, db, monkeypatch):
+    import uuid as _u
+
+    from app.prisma.service import resync_title_abstract
+    from app.services import prisma_sync
+
+    c, pid = screened
+    # the old behaviour: bulk decisions were recorded without their PRISMA events
+    monkeypatch.setattr(prisma_sync, "on_ta_decision", lambda *a, **k: None)
+    ids = [i["paper_id"] for i in queue(c, pid)["items"]]
+    assert (
+        c.post(f"/api/v1/projects/{pid}/screening/bulk", json={"decision": "include", "paper_ids": ids}).json()[
+            "changed"
+        ]
+        == 4
+    )
+    monkeypatch.undo()
+    assert _screening_stage(c, pid)["status"] != "done"
+    assert resync_title_abstract(db, _u.UUID(pid)) == 4
+    db.commit()
+    assert _screening_stage(c, pid)["status"] == "done"
+    assert resync_title_abstract(db, _u.UUID(pid)) == 0  # idempotent

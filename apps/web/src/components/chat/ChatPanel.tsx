@@ -322,7 +322,8 @@ export default function ChatPanel({
       setPending((list) => settlePending(list, [res.message]));
       setSave({ kind: "saved", at: new Date() });
       refreshThreads();
-      if (!isProtocolThread)
+      // A plain message gets no reply unless the assistant is asked; say so instead of leaving silence.
+      if (!isProtocolThread || run?.status !== "awaiting_input")
         setNotice(
           aiAvailable
             ? "Saved as a note. Switch on “Ask AI” below to get an answer."
@@ -377,7 +378,7 @@ export default function ChatPanel({
           text,
           current_view: ws?.activeView ?? null,
           conversation_id: cid,
-          record: !isProtocolThread,
+          record: true, // the person's message and the reply always appear in the thread
           strict: isProtocolThread,
           allow_ai: aiMode,
         }),
@@ -410,10 +411,8 @@ export default function ChatPanel({
     if (c.action === "none") return false;
     setDraft("");
     setNotice(c.reply ?? null);
-    if (!isProtocolThread) {
-      qc.invalidateQueries({ queryKey: ["messages", pid, cid] });
-      refreshThreads();
-    }
+    qc.invalidateQueries({ queryKey: ["messages", pid, cid] });
+    refreshThreads();
     if (c.request) setCommand(c);
     else if (c.view) ws?.openTab(c.view);
     return true;
