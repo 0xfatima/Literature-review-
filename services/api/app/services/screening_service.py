@@ -27,7 +27,7 @@ from app.repositories import screening as repo
 from app.repositories import workflows as wf_repo
 from app.screening import decisions as rules
 from app.screening.relevance import BAND_LABELS, BANDS
-from app.services import audit_service, prisma_sync, protocol_service, workflow_service
+from app.services import audit_service, open_access, prisma_sync, protocol_service, workflow_service
 
 STAGE = "title_abstract"
 MAX_BULK = 200
@@ -129,6 +129,7 @@ def _item(p: PaperRecord, st: Any, lex: Any, ai: Any, pv_id: uuid.UUID) -> dict[
         "is_preprint": p.is_preprint,
         "is_retracted": p.is_retracted,
         "access_status": p.access_status,
+        **open_access.view(p),
         "possible_duplicate_of_id": p.possible_duplicate_of_id,
         "band": band,
         "band_label": BAND_LABELS[band],

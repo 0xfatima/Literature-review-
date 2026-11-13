@@ -2,11 +2,13 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import FinishScreening from "@/components/screening/FinishScreening";
+import OpenAccessTag from "@/components/common/OpenAccessTag";
 import { ApiError, apiFetch, json } from "@/lib/api";
 import {
   BANDS,
   BAND_DOTS,
   BAND_LABELS,
+  BAND_EDGES,
   BAND_STYLES,
   DECISION_LABELS,
   FIELD_LABELS,
@@ -52,8 +54,8 @@ function BandChip({ band, score, source }: { band: Band; score: number | null; s
     >
       <span aria-hidden>{BAND_DOTS[band]}</span>
       <span>{BAND_LABELS[band]}</span>
-      {score !== null && band !== "not_assessed" && <span className="text-muted">· {score}/100</span>}
-      {source && <span className="text-muted">· {source === "ai" ? "AI" : "word overlap"}</span>}
+      {score !== null && band !== "not_assessed" && <span>· {score}/100</span>}
+      {source && <span className="opacity-80">· {source === "ai" ? "AI" : "word overlap"}</span>}
     </span>
   );
 }
@@ -238,7 +240,7 @@ function Card({
   const titleId = `t-${item.paper_id}`;
   return (
     <li
-      className="rounded border border-line bg-panel px-4 py-3"
+      className={`rounded border border-line bg-panel px-4 py-3 ${BAND_EDGES[item.band]}`}
       data-testid="screening-card"
       aria-labelledby={titleId}
       onKeyDown={(e) => {
@@ -279,6 +281,7 @@ function Card({
                 {SUGGESTION_LABELS[item.ai.eligibility_suggestion]}
               </span>
             )}
+            <OpenAccessTag open={item.open_access} url={item.read_url} />
             {item.is_preprint && <span className="text-xs text-mark">Preprint</span>}
             {item.is_retracted && <span className="text-xs text-danger">Retracted</span>}
             {item.possible_duplicate_of_id && <span className="text-xs text-mark">Possible duplicate</span>}
@@ -445,7 +448,15 @@ function RelevanceControls({ projectId, canWrite }: { projectId: string; canWrit
       {!s.llm.configured ? (
         <p className="max-w-prose text-sm text-muted">
           Connect an AI model in Settings to have the AI read the {s.total_papers} records for you. Records
-          are sorted by word overlap with your protocol in the meantime.
+          are sorted by word overlap with your protocol in the meantime.{" "}
+          <button
+            type="button"
+            className="underline"
+            disabled={!canWrite || start.isPending}
+            onClick={() => start.mutate({ use_llm: false })}
+          >
+            Re-score relevance
+          </button>
         </p>
       ) : running ? (
         <div aria-live="polite">
@@ -525,6 +536,15 @@ function RelevanceControls({ projectId, canWrite }: { projectId: string; canWrit
                   : "Run AI assessment"}
             </button>
             {!ack && <span className="text-xs text-muted">Tick the box above first.</span>}
+            <button
+              type="button"
+              className="btn-secondary ml-auto"
+              disabled={!canWrite || start.isPending}
+              title="Free and instant: sorts the records by how well their words match your search and questions."
+              onClick={() => start.mutate({ use_llm: false })}
+            >
+              Re-score relevance (word overlap)
+            </button>
           </div>
         </>
       )}

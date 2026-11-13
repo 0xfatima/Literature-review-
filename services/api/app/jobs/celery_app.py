@@ -21,6 +21,7 @@ TASK_QUEUES = {
     "pipeline.advance": QUEUE_INTERACTIVE,
     "search.run": QUEUE_INTERACTIVE,  # mostly waiting on provider spacing; keeps searches responsive
     "relevance.assess": QUEUE_INTERACTIVE,
+    "fulltext.fetch_oa": QUEUE_INTERACTIVE,  # network-bound
     "synthesis.draft": QUEUE_INTERACTIVE,
     "document.process": QUEUE_HEAVY,  # CPU-bound PDF parsing / OCR
     "extraction.run": QUEUE_HEAVY,

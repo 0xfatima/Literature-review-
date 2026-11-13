@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import current_user, get_owned_project
+from app.api.deps import current_user, get_dispatcher, get_owned_project, get_user_settings
+from app.core.config import Settings
 from app.db.models import Project, User
 from app.db.session import get_db
 from app.prisma import service as prisma_service
@@ -93,6 +95,30 @@ def ft_queue(
 ) -> dict[str, Any]:
     """Records awaiting or holding a full-text outcome, with counts per status. Derived from stored data only."""
     return prisma_service.ft_queue(db, project.id, status=status)
+
+
+@router.get("/fulltext/open-access")
+def open_access_summary(project: Project = Depends(get_owned_project), db: Session = Depends(get_db)) -> dict[str, Any]:
+    """How many papers awaiting full-text review are open access, how many need the person's PDF."""
+    from app.services import oa_fetch_service
+
+    return oa_fetch_service.summary(db, project)
+
+
+@router.post("/fulltext/fetch-open-access", status_code=202)
+def fetch_open_access(
+    project: Project = Depends(get_owned_project),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_user_settings),
+    dispatch: Callable[[str, str], None] = Depends(get_dispatcher),
+) -> dict[str, Any]:
+    """Download the PDFs of open-access papers awaiting full-text review, in the background."""
+    from app.schemas.jobs import JobOut
+    from app.services import oa_fetch_service
+
+    job = oa_fetch_service.start(db, settings, dispatch, user, project)
+    return JobOut.model_validate(job).model_dump()
 
 
 @router.post("/prisma/retrieval/{paper_id}")

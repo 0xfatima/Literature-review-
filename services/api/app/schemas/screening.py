@@ -97,6 +97,9 @@ class QueueItem(BaseModel):
     is_preprint: bool
     is_retracted: bool | None
     access_status: str
+    open_access: bool = False
+    oa_status: str = "unknown"
+    read_url: str | None = None
     possible_duplicate_of_id: uuid.UUID | None
     band: str
     band_label: str

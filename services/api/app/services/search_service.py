@@ -132,6 +132,8 @@ def build_plan(
     expression: str | None = None,
     provider_keys: list[str] | None = None,
     user: User | None = None,
+    max_records: int | None = None,
+    min_records: int | None = None,
 ) -> dict[str, Any]:
     """A preview of exactly what a search would send; also the basis of `start`. The only write it may do is caching
     an AI-built search expression for the approved protocol version (search_suggestion_service)."""
@@ -181,6 +183,21 @@ def build_plan(
                 "limitations": pq.limitations,
             }
         )
+    per_provider = settings.search_max_records_per_provider
+    limits: dict[str, Any] = {}
+    if max_records:
+        per_provider = max(10, min(10_000, -(-max_records // max(len(selected), 1))))
+        limits = {"max_total": max_records, "per_provider": per_provider}
+    if min_records:
+        if max_records and min_records > max_records:
+            raise ValidationFailed(
+                "The minimum number of papers is larger than the maximum.",
+                details=[{"field": "min_records", "issue": "above_max"}],
+            )
+        limits["min_total"] = min_records
+    filters = fp.as_dict()
+    if limits:
+        filters["record_limits"] = limits
     return {
         "protocol_version_id": approved.id,
         "protocol_version": approved.version,
@@ -189,7 +206,7 @@ def build_plan(
         "expression_source": "user_edited" if edited else derived.source,
         "derived_expression": derived.expression,
         "derivation_notes": [n for n in derived.explanation if n],
-        "filters": fp.as_dict(),
+        "filters": filters,
         "providers": selected,
         "protocol_sources": {
             "listed": list(content.get("sources") or []),
@@ -200,7 +217,8 @@ def build_plan(
         "limitations": _general_limitations(fp, unsupported, added),
         "queries": queries,
         "ready": node is not None and bool(selected),
-        "max_records_per_provider": settings.search_max_records_per_provider,
+        "max_records_per_provider": per_provider,
+        "record_limits": limits,
     }
 
 
@@ -260,6 +278,8 @@ def start(
     expression: str | None,
     provider_keys: list[str] | None,
     request_key: str | None = None,
+    max_records: int | None = None,
+    min_records: int | None = None,
 ) -> SearchRun:
     if request_key:
         existing_job = job_service.get_by_request_key(db, user.id, request_key)
@@ -290,7 +310,17 @@ def start(
                 "Run an open-access-first search and choose to broaden discovery before using additional sources.",
                 code="broaden_not_confirmed",
             )
-    plan = build_plan(db, settings, project, tier=tier, expression=expression, provider_keys=provider_keys, user=user)
+    plan = build_plan(
+        db,
+        settings,
+        project,
+        tier=tier,
+        expression=expression,
+        provider_keys=provider_keys,
+        user=user,
+        max_records=max_records,
+        min_records=min_records,
+    )
     if not plan["ready"]:
         raise ValidationFailed(
             "Write a search expression and choose at least one source.",

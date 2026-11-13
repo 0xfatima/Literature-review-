@@ -28,7 +28,7 @@ from app.db.models import (
     Study,
 )
 from app.prisma.flow import PrismaFlow, compute
-from app.services import audit_service
+from app.services import audit_service, open_access
 
 
 def _now() -> datetime:
@@ -610,6 +610,7 @@ def _paper_brief(p: PaperRecord) -> dict[str, Any]:
         "author_count": len(p.authors or []),
         "full_text_status": p.full_text_status,
         "study_id": str(p.study_id) if p.study_id else None,
+        **open_access.view(p),
     }
 
 

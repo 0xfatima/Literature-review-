@@ -28,11 +28,19 @@ from app.db.models import Job, Project, User
 from app.jobs import fsm
 from app.services.job_service import Dispatcher
 
-STEP_JOB_TYPES = ("search.run", "relevance.assess", "extraction.run", "appraisal.suggest", "synthesis.draft")
-PAUSABLE = frozenset({"search.run", "relevance.assess", "extraction.run", "appraisal.suggest"})
+STEP_JOB_TYPES = (
+    "search.run",
+    "relevance.assess",
+    "fulltext.fetch_oa",
+    "extraction.run",
+    "appraisal.suggest",
+    "synthesis.draft",
+)
+PAUSABLE = frozenset({"search.run", "relevance.assess", "fulltext.fetch_oa", "extraction.run", "appraisal.suggest"})
 STEP_LABELS = {
     "search.run": "The search",
     "relevance.assess": "AI screening",
+    "fulltext.fetch_oa": "Fetching open-access PDFs",
     "extraction.run": "AI extraction",
     "appraisal.suggest": "AI appraisal",
     "synthesis.draft": "The synthesis draft",

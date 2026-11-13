@@ -292,7 +292,8 @@ def _run_query(
     deadline: float,
     report: Callable[[str], None],
 ) -> None:
-    cap = max(1, min(settings.search_max_records_per_provider, 10_000))
+    limits = (run.filters or {}).get("record_limits") or {}
+    cap = max(1, min(int(limits.get("per_provider") or settings.search_max_records_per_provider), 10_000))
     page_size = max(1, min(settings.search_page_size, source.max_page_size))
     pq = ProviderQuery(source.key, query.endpoint, query.query_text, dict(query.params))
     query.status = "running"
@@ -356,10 +357,23 @@ def _finalise(db: Session, run: SearchRun, stop: str | None) -> None:
     notes = []
     if problems:
         notes.append("; ".join(problems))
-    if capped:
+    limits = (run.filters or {}).get("record_limits") or {}
+    if capped and limits.get("max_total"):
+        notes.append(
+            f"Stopped at your maximum of {limits['max_total']} papers ({', '.join(capped)} had more). Make the "
+            "search more specific to get only the closest matches."
+        )
+    elif capped:
         notes.append(
             f"Stopped at the record limit for {', '.join(capped)}: the provider reported more results than were "
-            "retrieved. Narrow the query, or raise SEARCH_MAX_RECORDS_PER_PROVIDER."
+            "retrieved. Narrow the query, or set a higher maximum number of papers for the search."
+        )
+    min_total = int(limits.get("min_total") or 0)
+    found = run.papers_new + run.papers_matched_existing
+    if min_total and found < min_total:
+        notes.append(
+            f"Found {found} papers, fewer than the {min_total} you asked for. Broaden the search: fewer required "
+            "concepts, or more synonyms per concept."
         )
     if stop == "time_budget":
         notes.append("The search reached its time budget for one job. Continue it to resume where it stopped.")

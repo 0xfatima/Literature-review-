@@ -89,6 +89,10 @@ function SearchProposal({
   const [asking, setAsking] = useState(false);
   const [guidance, setGuidance] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [maxRecords, setMaxRecords] = useState("");
+  const [minRecords, setMinRecords] = useState("");
+  const num = (v: string) => (/^\d+$/.test(v) ? Number(v) : null);
+  const limits = { max_records: num(maxRecords), min_records: num(minRecords) };
   const planKey = ["search-plan", projectId];
   const plan = useQuery({
     queryKey: planKey,
@@ -123,7 +127,7 @@ function SearchProposal({
     mutationFn: () =>
       apiFetch<SearchRun>(`/projects/${projectId}/search-runs`, {
         method: "POST",
-        ...json({ tier: "open_access", expression: null, providers: null }),
+        ...json({ tier: "open_access", expression: null, providers: null, ...limits }),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["search-runs", projectId] });
@@ -211,27 +215,51 @@ function SearchProposal({
           </div>
         </div>
       ) : (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="btn-accept"
-            disabled={!canWrite || busy || !p.ready}
-            onClick={() => run.mutate()}
-          >
-            <Icon name="check" size={14} /> {run.isPending ? "Starting…" : "Yes, run this search"}
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => openTab("search")}>
-            Edit it myself
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={!canWrite || busy}
-            onClick={() => setAsking(true)}
-          >
-            <Icon name="sparkle" size={14} /> Ask AI for a different one
-          </button>
-        </div>
+        <>
+          <div className="mt-3 flex flex-wrap items-end gap-3 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted">At least (papers)</span>
+              <input
+                className="input w-24"
+                inputMode="numeric"
+                placeholder="optional"
+                value={minRecords}
+                onChange={(e) => setMinRecords(e.target.value.replace(/[^0-9]/g, ""))}
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted">At most (papers)</span>
+              <input
+                className="input w-24"
+                inputMode="numeric"
+                placeholder="optional"
+                value={maxRecords}
+                onChange={(e) => setMaxRecords(e.target.value.replace(/[^0-9]/g, ""))}
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-accept"
+              disabled={!canWrite || busy || !p.ready}
+              onClick={() => run.mutate()}
+            >
+              <Icon name="check" size={14} /> {run.isPending ? "Starting…" : "Yes, run this search"}
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => openTab("search")}>
+              Edit it myself
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!canWrite || busy}
+              onClick={() => setAsking(true)}
+            >
+              <Icon name="sparkle" size={14} /> Ask AI for a different one
+            </button>
+          </div>
+        </>
       )}
       {error && (
         <p role="alert" className="mt-2 text-sm text-danger">
@@ -348,6 +376,7 @@ function ScreeningStep({
       </p>
     ) : (
       <p>
+        {run?.error_summary && <span className="mb-1 block text-sm text-mark">{run.error_summary}</span>}
         The search found <strong>{found}</strong> new paper{found === 1 ? "" : "s"}
         {total && total !== found ? ` (${total} in this review in total)` : ""}.{" "}
         <button type="button" className="text-link underline" onClick={() => openTab("papers")}>

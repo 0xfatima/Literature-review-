@@ -15,7 +15,7 @@ from app.core.untrusted import fence
 from app.providers.llm import LLMGateway
 from app.search import query as q
 
-PROMPT_VERSION = "search-expression-v2"
+PROMPT_VERSION = "search-expression-v3"
 MAX_CONCEPTS = 5
 MAX_SYNONYMS = 10
 
@@ -35,6 +35,13 @@ SYSTEM = " ".join(
         "words as terms (study, review, effect, impact, role, analysis, outcomes, factors, evidence). Do not add study",
         "designs, dates or languages: they are applied separately. Use NOT only to remove an unambiguous, frequent",
         "false-positive sense.",
+        "Quality bar: the results must be HIGHLY relevant, so every concept must be specific to this review (never a",
+        "single generic word such as learning, model, data, health, technology, impact); every OR group has at least",
+        '3 terms; always pair an acronym with its spelled-out form (e.g. "quantum machine learning" OR QML OR',
+        '"quantum neural network*"); include the established named methods, devices or settings researchers use',
+        "for the concept; for a clinical or medical context add the specific settings (clinical, hospital*,",
+        "patient*, diagnos*, medical imaging, drug discovery ...) the questions imply. Prefer 2-3 AND-ed concepts:",
+        "a fourth concept usually removes relevant papers.",
     ]
 )
 

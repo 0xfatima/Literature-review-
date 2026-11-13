@@ -1,4 +1,5 @@
 "use client";
+import OpenAccessBox from "@/components/fulltext/OpenAccessBox";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { ApiError, apiFetch, json } from "@/lib/api";
@@ -406,6 +407,7 @@ export default function DocumentsPanel({ projectId, canWrite }: { projectId: str
 
   return (
     <div className="flex max-w-4xl flex-col gap-4">
+      <OpenAccessBox projectId={projectId} canWrite={canWrite} />
       <section aria-labelledby="files-h">
         <h2 id="files-h" className="section-title mb-2">
           Full-text PDFs

@@ -78,6 +78,7 @@ LABELS: dict[str, str] = {
     "full_text.retrieval_restored": "Full text marked as sought again",
     "study.ungrouped": "Study grouping removed",
     "document.uploaded": "File uploaded",
+    "document.oa_fetched": "Open-access PDFs fetched",
     "document.purged": "File purged (retention)",
     "evidence.edited": "Extracted value edited",
     "evidence.approved": "Extracted value approved",
