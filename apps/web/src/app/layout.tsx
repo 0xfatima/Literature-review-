@@ -3,7 +3,7 @@ import { THEME_BOOT } from "@/lib/theme";
 import "./globals.css";
 import Providers from "./providers";
 
-export const metadata: Metadata = { title: "Systematic Review Scientist" };
+export const metadata: Metadata = { title: "Prismatic — systematic reviews" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

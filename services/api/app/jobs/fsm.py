@@ -59,6 +59,8 @@ JOB_TYPES: dict[str, dict[str, Any]] = {
     "relevance.assess": {"cancellable": True, "max_attempts": 2},
     # Downloads the PDFs of open-access papers awaiting full-text review. Cancellable between papers; kept so far.
     "fulltext.fetch_oa": {"cancellable": True, "max_attempts": 2},
+    # The AI reads available PDFs and records full-text decisions. Cancellable between papers.
+    "fulltext.ai_screen": {"cancellable": True, "max_attempts": 1},
     # Reads one uploaded PDF (fetch, checksum, optional malware scan, text extraction, OCR where needed, matching).
     # Not cancellable: the result is committed atomically, and a half-read file must never be left behind.
     "document.process": {"cancellable": False, "max_attempts": 2},

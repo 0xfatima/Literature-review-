@@ -1,6 +1,7 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import AuthFrame from "@/components/auth/AuthFrame";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import type { RegisterResult } from "@/lib/account";
@@ -64,11 +65,10 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-6">
-      <div>
-        <p className="mb-1 text-sm text-mark">Systematic Review Scientist</p>
-        <h1 className="text-2xl font-semibold">{isRegister ? "Create your account" : "Sign in"}</h1>
-      </div>
+    <AuthFrame
+      title={isRegister ? "Create your account" : "Welcome back"}
+      subtitle={isRegister ? "Start your first review in a minute." : "Sign in to continue your reviews."}
+    >
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
         <div className="flex flex-col gap-1">
           <label htmlFor="email" className="text-sm font-medium">
@@ -80,7 +80,7 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
             type="email"
             autoComplete="email"
             required
-            className="input"
+            className="auth-input"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -95,7 +95,7 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
             type="password"
             required
             autoComplete={isRegister ? "new-password" : "current-password"}
-            className="input"
+            className="auth-input"
             aria-describedby={isRegister ? "pw-hint" : undefined}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -123,7 +123,7 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
             {notice}
           </p>
         )}
-        <button type="submit" className="btn" disabled={busy}>
+        <button type="submit" className="auth-submit" disabled={busy}>
           {busy ? "Please wait…" : isRegister ? "Create account" : "Sign in"}
         </button>
       </form>
@@ -144,6 +144,6 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
           </>
         )}
       </p>
-    </main>
+    </AuthFrame>
   );
 }

@@ -5,6 +5,7 @@ import { ApiError, apiFetch, json } from "@/lib/api";
 import { decisionButton } from "@/components/common/decisionStyle";
 import OpenAccessTag from "@/components/common/OpenAccessTag";
 import OpenAccessBox from "@/components/fulltext/OpenAccessBox";
+import AiFullTextPanel from "@/components/fulltext/AiFullTextPanel";
 import {
   citeLabel,
   decisionProblem,
@@ -41,11 +42,15 @@ function QueueItem({
   item,
   reasons,
   canWrite,
+  selected,
+  onSelect,
 }: {
   projectId: string;
   item: FtQueueItem;
   reasons: FtReason[];
   canWrite: boolean;
+  selected: boolean;
+  onSelect: (v: boolean) => void;
 }) {
   const ws = useWorkspace();
   const refresh = useRefresh(projectId);
@@ -94,6 +99,13 @@ function QueueItem({
   return (
     <li className="rounded border border-line bg-panel p-3" aria-labelledby={`ft-title-${item.id}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
+        <input
+          type="checkbox"
+          className="mt-1.5 accent-mark"
+          checked={selected}
+          onChange={(e) => onSelect(e.target.checked)}
+          aria-label={`Select “${item.title}”`}
+        />
         <div className="min-w-0 flex-1">
           <p id={`ft-title-${item.id}`} className="font-medium">
             {item.title}
@@ -288,6 +300,26 @@ export default function FullTextPanel({
   onOpenFiles: () => void;
 }) {
   const [status, setStatus] = useState<FtStatus | "all">("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkReason, setBulkReason] = useState("");
+  const [bulkExcluding, setBulkExcluding] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const refreshAll = useRefresh(projectId);
+  const bulk = useMutation({
+    mutationFn: (b: { decision: string; reason_code?: string }) =>
+      apiFetch<{ changed: number }>(`/projects/${projectId}/prisma/ft-bulk`, {
+        method: "POST",
+        ...json({ ...b, paper_ids: [...selected] }),
+      }),
+    onSuccess: () => {
+      setSelected(new Set());
+      setBulkExcluding(false);
+      setBulkReason("");
+      setBulkError(null);
+      refreshAll();
+    },
+    onError: (e) => setBulkError(e instanceof ApiError ? e.message : "Could not save the decisions."),
+  });
   const queue = useQuery({
     queryKey: ["fulltext", projectId, "queue", status],
     queryFn: () =>
@@ -324,6 +356,7 @@ export default function FullTextPanel({
         </div>
 
         <OpenAccessBox projectId={projectId} canWrite={canWrite} />
+        <AiFullTextPanel projectId={projectId} canWrite={canWrite} />
         {queue.isLoading && <p className="text-muted">Loading full-text screening…</p>}
         {queue.isError && <p className="text-danger">Could not load the full-text screening list.</p>}
         {reasons.isError && (
@@ -370,6 +403,77 @@ export default function FullTextPanel({
           <p className="text-sm text-muted">No records with this status.</p>
         )}
         {queue.data && queue.data.items.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 rounded border border-line px-3 py-2 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="accent-mark"
+                checked={queue.data.items.every((i) => selected.has(i.id))}
+                onChange={(e) =>
+                  setSelected(e.target.checked ? new Set(queue.data!.items.map((i) => i.id)) : new Set())
+                }
+              />
+              Select all {queue.data.items.length} shown
+            </label>
+            <span className="text-muted">{selected.size} selected</span>
+            {selected.size > 0 && (
+              <span className="flex flex-wrap items-center gap-2" role="group" aria-label="Decide selected">
+                <button
+                  type="button"
+                  className="btn-accept"
+                  disabled={!canWrite || bulk.isPending}
+                  onClick={() => bulk.mutate({ decision: "include" })}
+                >
+                  Include {selected.size}
+                </button>
+                <button
+                  type="button"
+                  className="btn-uncertain"
+                  disabled={!canWrite || bulk.isPending}
+                  onClick={() => bulk.mutate({ decision: "uncertain" })}
+                >
+                  Mark {selected.size} uncertain
+                </button>
+                {bulkExcluding ? (
+                  <>
+                    <select
+                      className="input w-auto"
+                      aria-label="Exclusion reason"
+                      value={bulkReason}
+                      onChange={(e) => setBulkReason(e.target.value)}
+                    >
+                      <option value="">Choose a reason…</option>
+                      {(reasons.data ?? []).map((r) => (
+                        <option key={r.code} value={r.code}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn-reject"
+                      disabled={!canWrite || !bulkReason || bulk.isPending}
+                      onClick={() => bulk.mutate({ decision: "exclude", reason_code: bulkReason })}
+                    >
+                      Exclude {selected.size}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-reject-soft"
+                    disabled={!canWrite || bulk.isPending}
+                    onClick={() => setBulkExcluding(true)}
+                  >
+                    Exclude {selected.size}…
+                  </button>
+                )}
+              </span>
+            )}
+            {bulkError && <span className="w-full text-danger">{bulkError}</span>}
+          </div>
+        )}
+        {queue.data && queue.data.items.length > 0 && (
           <ul className="flex flex-col gap-2">
             {queue.data.items.map((item) => (
               <QueueItem
@@ -378,6 +482,13 @@ export default function FullTextPanel({
                 item={item}
                 reasons={reasons.data ?? []}
                 canWrite={canWrite && reasons.isSuccess}
+                selected={selected.has(item.id)}
+                onSelect={(v) => {
+                  const next = new Set(selected);
+                  if (v) next.add(item.id);
+                  else next.delete(item.id);
+                  setSelected(next);
+                }}
               />
             ))}
           </ul>

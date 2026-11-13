@@ -79,6 +79,8 @@ LABELS: dict[str, str] = {
     "study.ungrouped": "Study grouping removed",
     "document.uploaded": "File uploaded",
     "document.oa_fetched": "Open-access PDFs fetched",
+    "full_text_screening.ai_decided": "AI full-text screening",
+    "full_text_screening.bulk_decided": "Full-text decisions made in bulk",
     "document.purged": "File purged (retention)",
     "evidence.edited": "Extracted value edited",
     "evidence.approved": "Extracted value approved",

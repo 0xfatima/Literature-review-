@@ -379,6 +379,36 @@ def ft_decide(
     expected_row_version: int | None,
 ) -> ScreeningDecision:
     """Record a full-text screening decision. Exclusion at full_text always requires a reason_code."""
+    proj, pv = _ft_context(db, project_id)
+    paper = db.scalar(select(PaperRecord).where(PaperRecord.id == paper_id, PaperRecord.project_id == project_id))
+    if paper is None:
+        raise NotFound("Paper not found.")
+    new_dec = _ft_record(
+        db,
+        pv,
+        project_id=project_id,
+        paper_id=paper_id,
+        user_id=user_id,
+        decision=decision,
+        reason_code=reason_code,
+        note=note,
+        expected_row_version=expected_row_version,
+    )
+    audit_service.record(
+        db,
+        action="full_text_screening.decided",
+        entity_type="paper",
+        entity_id=paper_id,
+        actor_id=user_id,
+        project_id=project_id,
+        after={"decision": decision, "reason_code": reason_code},
+    )
+    db.commit()
+    db.refresh(new_dec)
+    return new_dec
+
+
+def _ft_context(db: Session, project_id: uuid.UUID) -> tuple[Any, ProtocolVersion]:
     from app.db.models import Project
     from app.services import protocol_service as ps
 
@@ -388,11 +418,24 @@ def ft_decide(
     pv = ps.approved(db, proj)
     if pv is None:
         raise Conflict("Approve the protocol before screening.", code="protocol_not_approved")
+    return proj, pv
 
-    paper = db.scalar(select(PaperRecord).where(PaperRecord.id == paper_id, PaperRecord.project_id == project_id))
-    if paper is None:
-        raise NotFound("Paper not found.")
 
+def _ft_record(
+    db: Session,
+    pv: ProtocolVersion,
+    *,
+    project_id: uuid.UUID,
+    paper_id: uuid.UUID,
+    user_id: uuid.UUID,
+    decision: str,
+    reason_code: str | None,
+    note: str | None,
+    expected_row_version: int | None = None,
+    action: str = "decide",
+    batch_id: uuid.UUID | None = None,
+) -> ScreeningDecision:
+    """Append one full-text decision and keep the current-state row and the PRISMA flow in step. No commit."""
     if decision == "exclude" and not reason_code:
         raise ValidationFailed(
             "A reason is required for full-text exclusion.",
@@ -400,23 +443,17 @@ def ft_decide(
         )
     if decision not in ("include", "exclude", "uncertain"):
         raise ValidationFailed("Decision must be include, exclude or uncertain.")
-
-    # optimistic concurrency via screening_states
     state = db.scalar(
         select(ScreeningState).where(ScreeningState.paper_id == paper_id, ScreeningState.stage == FT_STAGE)
     )
     if state and expected_row_version is not None and state.row_version != expected_row_version:
         raise Conflict("This record was changed elsewhere. Reload and try again.", code="version_conflict")
-
-    # resolve reason label
     reason_label: str | None = None
     if reason_code:
         opts = {o["code"]: o["label"] for o in ft_reason_options(pv)}
         reason_label = opts.get(reason_code)
         if reason_label is None:
             raise ValidationFailed(f"Unknown reason code '{reason_code}'.")
-
-    old_decision_id: uuid.UUID | None = state.decision_id if state else None
     new_dec = ScreeningDecision(
         id=uuid.uuid4(),
         project_id=project_id,
@@ -428,13 +465,13 @@ def ft_decide(
         reason_label=reason_label,
         note=note,
         reviewer_id=user_id,
-        action="decide",
-        supersedes_id=old_decision_id,
+        action=action,
+        batch_id=batch_id,
+        supersedes_id=state.decision_id if state else None,
         assessment_ids=[],
     )
     db.add(new_dec)
     db.flush()
-
     if state:
         state.decision = decision
         state.decision_id = new_dec.id
@@ -453,20 +490,62 @@ def ft_decide(
                 protocol_version_id=pv.id,
             )
         )
-
+    db.flush()
     sync_from_screening_decision(db, new_dec, pv)
+    return new_dec
+
+
+FT_BULK_MAX = 1000
+
+
+def ft_bulk(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    paper_ids: list[uuid.UUID],
+    decision: str,
+    reason_code: str | None,
+    note: str | None,
+) -> dict[str, Any]:
+    """One full-text decision for many reports at once (only reports in the full-text queue). Shares a batch id."""
+    from app.services import protocol_service as ps
+
+    proj, pv = _ft_context(db, project_id)
+    ps.require_writable(proj)
+    ids = list(dict.fromkeys(paper_ids))
+    if not ids or len(ids) > FT_BULK_MAX:
+        raise ValidationFailed(f"Select 1-{FT_BULK_MAX} reports.", details=[{"field": "paper_ids"}])
+    in_queue = {i["id"] for i in ft_queue(db, project_id)["items"]}
+    batch_id = uuid.uuid4()
+    changed = 0
+    for pid in ids:
+        if str(pid) not in in_queue:
+            continue
+        _ft_record(
+            db,
+            pv,
+            project_id=project_id,
+            paper_id=pid,
+            user_id=user_id,
+            decision=decision,
+            reason_code=reason_code,
+            note=note,
+            action="bulk",
+            batch_id=batch_id,
+        )
+        changed += 1
     audit_service.record(
         db,
-        action="full_text_screening.decided",
-        entity_type="paper",
-        entity_id=paper_id,
+        action="full_text_screening.bulk_decided",
+        entity_type="project",
+        entity_id=project_id,
         actor_id=user_id,
         project_id=project_id,
-        after={"decision": decision, "reason_code": reason_code},
+        after={"decision": decision, "reason_code": reason_code, "count": changed, "batch_id": str(batch_id)},
     )
     db.commit()
-    db.refresh(new_dec)
-    return new_dec
+    return {"batch_id": str(batch_id), "changed": changed}
 
 
 # ---------- studies ----------
