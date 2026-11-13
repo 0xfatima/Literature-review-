@@ -124,6 +124,22 @@ def seed_dev() -> None:
     print(f"Seeded demo user {s.dev_seed_email} (password from DEV_SEED_PASSWORD). Development only.")
 
 
+def resync_prisma() -> int:
+    """Bring every project's PRISMA title/abstract outcomes in line with its screening decisions. Idempotent; run
+    after migrations, so decisions made in bulk or by the AI before they were kept in sync count again."""
+    from sqlalchemy import select
+
+    from app.db.models import Project
+    from app.prisma.service import resync_title_abstract
+
+    total = 0
+    with get_sessionmaker()() as db:
+        for pid in db.scalars(select(Project.id)).all():
+            total += resync_title_abstract(db, pid)
+            db.commit()
+    return total
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="app.cli")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -132,6 +148,7 @@ def main(argv: list[str] | None = None) -> None:
         sp.add_argument("email")
     sub.add_parser("seed-dev")
     sub.add_parser("sweep-jobs")
+    sub.add_parser("resync-prisma")
     args = ap.parse_args(argv)
     set_actor_process(f"cli:{args.cmd}")  # audit attribution for operator actions (Phase 14)
     if args.cmd == "create-user":
@@ -148,6 +165,8 @@ def main(argv: list[str] | None = None) -> None:
 
         with get_sessionmaker()() as db:
             print(job_service.sweep(db, get_settings(), send_task))
+    elif args.cmd == "resync-prisma":
+        print(f"PRISMA title/abstract outcomes corrected: {resync_prisma()}")
 
 
 if __name__ == "__main__":

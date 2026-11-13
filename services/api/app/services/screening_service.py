@@ -270,6 +270,10 @@ def _append(
         st.row_version += 1
         st.updated_at = _now()
     db.flush()
+    # Every way a decision is made (one record, bulk, "select all", AI screening, undo) keeps the PRISMA flow, which
+    # decides when the screening step is complete, in step with it. Before, only one-record decisions did, so bulk
+    # and AI decisions never counted and "Next: Full text" stayed disabled.
+    prisma_sync.on_ta_decision(db, d, pv)
     return d
 
 
@@ -315,7 +319,6 @@ def decide(
         return {"decision_id": st.decision_id, "unchanged": True}
     d = _append(db, project, user, pv, paper_id, decision, reason, action="decide", batch_id=None)
     _advance_stage(db, project, user)
-    prisma_sync.on_ta_decision(db, d, pv)
     audit_service.record(
         db,
         action="screening.decided",

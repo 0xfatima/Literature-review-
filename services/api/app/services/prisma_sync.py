@@ -16,8 +16,9 @@ from app.prisma import service as prisma_service
 
 def on_ta_decision(db: Session, decision: ScreeningDecision, pv: ProtocolVersion) -> None:
     """Called after each title/abstract screening decision is flushed (before commit).
-    Skips 'uncertain' and 'cleared' — those leave the paper pending in the PRISMA flow."""
+    'uncertain' and 'cleared' put the paper back to awaiting screening (if it had a title/abstract outcome)."""
     if decision.decision in ("uncertain", "cleared"):
+        prisma_service.reopen_title_abstract(db, decision, pv)
         return
     prisma_service.sync_from_screening_decision(db, decision, pv)
 

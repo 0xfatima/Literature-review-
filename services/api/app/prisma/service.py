@@ -140,6 +140,80 @@ def sync_from_screening_decision(
     )
 
 
+def _current_event(db: Session, project_id: uuid.UUID, paper_id: uuid.UUID) -> RecordStatusEvent | None:
+    superseded_ids = (
+        select(RecordStatusEvent.supersedes_id)
+        .where(RecordStatusEvent.project_id == project_id, RecordStatusEvent.supersedes_id.is_not(None))
+        .scalar_subquery()
+    )
+    return db.scalar(
+        select(RecordStatusEvent)
+        .where(
+            RecordStatusEvent.paper_id == paper_id,
+            RecordStatusEvent.project_id == project_id,
+            RecordStatusEvent.id.not_in(superseded_ids),
+        )
+        .order_by(RecordStatusEvent.created_at.desc())
+        .limit(1)
+    )
+
+
+TA_OUTCOMES = ("ta_included", "ta_excluded")
+
+
+def reopen_title_abstract(db: Session, decision: ScreeningDecision, pv: ProtocolVersion) -> None:
+    """A title/abstract decision changed to uncertain, or was undone: the paper is awaiting screening again. Only a
+    current title/abstract outcome is reopened; later (full-text) outcomes are left alone."""
+    old = _current_event(db, decision.project_id, decision.paper_id)
+    if old is None or old.stage not in TA_OUTCOMES:
+        return
+    emit_event(
+        db,
+        project_id=decision.project_id,
+        paper_id=decision.paper_id,
+        protocol_version_id=pv.id,
+        pathway=old.pathway,
+        stage="identified",
+        actor_id=decision.reviewer_id,
+        source_tag=old.source_tag,
+        supersedes_id=old.id,
+        screening_decision_id=decision.id,
+    )
+
+
+def resync_title_abstract(db: Session, project_id: uuid.UUID) -> int:
+    """Repair: make every paper's PRISMA title/abstract outcome match its current screening decision (decisions made
+    in bulk or by the AI before this was kept in sync). Idempotent; never touches full-text outcomes. Returns the
+    number of papers corrected. The caller commits."""
+    from app.db.models import ScreeningDecision as Decision
+    from app.db.models import ScreeningState
+
+    rows = db.execute(
+        select(ScreeningState, Decision)
+        .join(Decision, Decision.id == ScreeningState.decision_id)
+        .where(ScreeningState.project_id == project_id, ScreeningState.stage == "title_abstract")
+    ).all()
+    fixed = 0
+    for st, d in rows:
+        pv = db.get(ProtocolVersion, d.protocol_version_id)
+        if pv is None:
+            continue
+        cur = _current_event(db, project_id, st.paper_id)
+        stage = cur.stage if cur is not None else None
+        want = {"include": "ta_included", "exclude": "ta_excluded"}.get(st.decision, "identified")
+        if stage == want or (stage is not None and stage not in ("identified", *TA_OUTCOMES)):
+            continue
+        if want == "identified":
+            if stage in TA_OUTCOMES:
+                reopen_title_abstract(db, d, pv)
+                fixed += 1
+            continue
+        sync_from_screening_decision(db, d, pv)
+        fixed += 1
+    db.flush()
+    return fixed
+
+
 def seed_identified_events(
     db: Session,
     project_id: uuid.UUID,
