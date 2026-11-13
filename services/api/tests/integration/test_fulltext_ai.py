@@ -50,7 +50,10 @@ def _included(c, dispatcher, n=3):
     pid, _ = searched(c, dispatcher)
     papers = [p["id"] for p in c.get(f"/api/v1/projects/{pid}/papers?limit=100").json()["items"]][:n]
     for p in papers:
-        assert c.post(f"/api/v1/projects/{pid}/screening/papers/{p}/decision", json={"decision": "include"}).status_code == 200
+        assert (
+            c.post(f"/api/v1/projects/{pid}/screening/papers/{p}/decision", json={"decision": "include"}).status_code
+            == 200
+        )
     return pid, papers
 
 
@@ -68,7 +71,7 @@ def test_bulk_full_text_decisions(user_client, dispatcher):
     assert {i["status"] for i in _queue(c, pid).values()} == {"included"}
 
 
-def test_ai_reads_only_available_pdfs_and_excludes_only_with_verified_quotes(
+def test_ai_only_includes_reads_pdfs_ready_at_the_click_and_never_rereads_what_it_left(
     user_client, dispatcher, object_store, db, set_settings
 ):
     c, _, user_id = user_client()
@@ -90,24 +93,36 @@ def test_ai_reads_only_available_pdfs_and_excludes_only_with_verified_quotes(
     _consent(db, pid, str(user_id))
     r = c.post(f"/api/v1/projects/{pid}/fulltext/ai-screen")
     assert r.status_code == 202, r.text
+    # a PDF that arrives after the click is not read by this run
+    upload(c, pid, make_pdf(["A later randomised trial of adults with depression. " * 20]), paper_id=p3)
+    assert run_document_jobs(dispatcher, object_store) == ["parsed"]
 
     def answer(prompt: str) -> dict[str, Any]:
         if "randomised trial" in prompt:
             return {"decision": "include", "reason": "Adults with depression in an RCT."}
-        # names a criterion key that does not exist: must not exclude
-        return {"decision": "exclude", "reason": "case report", "criterion_key": "nope", "quote": "A case report"}
+        return {"decision": "not_included", "reason": "A case report."}
 
     llm = ScreenLLM(answer)
+    gw = LLMGateway(llm, send_private_documents=True, terms_reviewed=True)
     [jid] = _take(dispatcher, "fulltext.ai_screen")
     s, job = _claimed(jid)
-    out = ft_ai_service.execute(
-        s, job, get_settings(), gateway=LLMGateway(llm, send_private_documents=True, terms_reviewed=True)
-    )
+    assert ft_ai_service.execute(s, job, get_settings(), gateway=gw) == "ok"
     s.close()
-    assert out == "ok" and len(llm.prompts) == 2  # p3 has no PDF and is never sent
+    assert len(llm.prompts) == 2  # p3's PDF arrived after the click: not read by this run
     q = _queue(c, pid)
-    assert q[p1]["status"] == "included" and q[p2]["status"] == "uncertain" and q[p3]["status"] == "awaiting"
+    # The AI only includes: what it does not include stays awaiting the person's decision.
+    assert q[p1]["status"] == "included" and q[p2]["status"] == "awaiting" and q[p3]["status"] == "awaiting"
     st = c.get(f"/api/v1/projects/{pid}/fulltext/ai-screen").json()
-    chosen = {x["paper_id"]: x for x in st["chosen"]}
-    assert chosen[p1]["ai_decision"] == "include" and chosen[p2]["ai_decision"] == "uncertain"
-    assert "verifiable" in chosen[p2]["reason"]
+    assert [x["paper_id"] for x in st["chosen"]] == [p1] and st["left_for_you"] == 1
+    # The next click reads only the PDF that arrived later (p3), never p2 again (already read and left).
+    st = c.get(f"/api/v1/projects/{pid}/fulltext/ai-screen").json()
+    assert st["readable"] == 1
+    assert c.post(f"/api/v1/projects/{pid}/fulltext/ai-screen").status_code == 202
+    [jid] = _take(dispatcher, "fulltext.ai_screen")
+    s, job = _claimed(jid)
+    llm.prompts.clear()
+    assert ft_ai_service.execute(s, job, get_settings(), gateway=gw) == "ok"
+    s.close()
+    assert len(llm.prompts) == 1 and "later randomised trial" in llm.prompts[0]
+    q = _queue(c, pid)
+    assert q[p3]["status"] == "included" and q[p2]["status"] == "awaiting"

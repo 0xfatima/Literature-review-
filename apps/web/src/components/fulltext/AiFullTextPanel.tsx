@@ -18,6 +18,8 @@ interface AiFtStatus {
   awaiting: number;
   readable: number;
   without_pdf: number;
+  /** Read by the last AI run but not included: they wait for the person's own decision. */
+  left_for_you: number;
   consent: {
     can_send_documents: boolean;
     blocked_reason: string | null;
@@ -125,28 +127,41 @@ export default function AiFullTextPanel({ projectId, canWrite }: { projectId: st
           </p>
           <progress className="mt-2 h-1.5 w-full accent-mark" max={100} value={job.data?.progress ?? 0} />
         </div>
-      ) : s.chosen.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="btn-accept" onClick={() => setOpen(true)}>
-            View AI-chosen studies ({s.chosen.filter((c) => c.ai_decision === "include").length})
-          </button>
-          {s.readable > 0 && (
-            <button
-              type="button"
-              className="btn-ghost"
-              disabled={!canWrite || start.isPending}
-              onClick={() => start.mutate()}
-            >
-              Read {s.readable} more PDF{s.readable === 1 ? "" : "s"}
-            </button>
+      ) : s.chosen.length > 0 || (s.left_for_you > 0 && s.readable === 0) ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {s.chosen.length > 0 ? (
+              <button type="button" className="btn-accept" onClick={() => setOpen(true)}>
+                View AI-chosen studies ({s.chosen.length})
+              </button>
+            ) : (
+              <span className="text-sm">The AI did not include any of the PDFs it read.</span>
+            )}
+            {s.readable > 0 && (
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={!canWrite || start.isPending}
+                onClick={() => start.mutate()}
+              >
+                Read {s.readable} new PDF{s.readable === 1 ? "" : "s"}
+              </button>
+            )}
+          </div>
+          {s.left_for_you > 0 && (
+            <p className="text-xs text-muted">
+              {s.left_for_you} PDF{s.left_for_you === 1 ? " was" : "s were"} read but not included: decide{" "}
+              {s.left_for_you === 1 ? "it" : "them"} yourself in the list below.
+            </p>
           )}
         </div>
       ) : (
         <>
           <p className="text-sm">
             The AI reads the <strong>{s.readable}</strong> PDF{s.readable === 1 ? "" : "s"} available
-            (uploaded or fetched) and includes or excludes each against your criteria.
-            {s.without_pdf > 0 && ` ${s.without_pdf} without a PDF are left for you.`}
+            (uploaded or fetched) and <strong>includes</strong> the ones that meet your criteria. It never
+            excludes anything: papers it does not include stay for you to decide.
+            {s.without_pdf > 0 && ` ${s.without_pdf} without a PDF are also left for you.`}
           </p>
           {operatorBlock ? (
             <p className="text-sm text-danger">{operatorBlock}</p>
@@ -160,9 +175,8 @@ export default function AiFullTextPanel({ projectId, canWrite }: { projectId: st
                   onChange={(e) => setAck(e.target.checked)}
                 />
                 <span>
-                  OK to send the text of these PDFs to {s.consent.model ?? "the AI model"}. Exclusions need a
-                  quote the app can find in the PDF; otherwise the paper is marked uncertain. I can change
-                  every decision.
+                  OK to send the text of these PDFs to {s.consent.model ?? "the AI model"}. I can change every
+                  inclusion afterwards.
                 </span>
               </label>
               <div>
@@ -237,7 +251,8 @@ export default function AiFullTextPanel({ projectId, canWrite }: { projectId: st
                 ))}
             </ul>
             <p className="border-t border-line px-5 py-2 text-xs text-muted">
-              These are ordinary full-text decisions: change any of them in the list below.
+              The AI only includes. These are ordinary full-text decisions: change any of them in the list
+              below.
             </p>
           </div>
         </div>

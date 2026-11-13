@@ -1,4 +1,5 @@
 "use client";
+import Icon from "@/components/ui/Icon";
 import Logo from "@/components/brand/Logo";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -18,6 +19,7 @@ export default function ProjectsPage() {
   const [topic, setTopic] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   const list = useQuery({
     queryKey: ["projects", showArchived],
@@ -76,7 +78,15 @@ export default function ProjectsPage() {
           <Logo size={26} />
         </div>
         <div className="flex items-center justify-between px-5 pb-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Projects</h2>
+          <button
+            type="button"
+            className="flex items-center gap-1 text-sm font-semibold text-ink"
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed((v) => !v)}
+          >
+            Projects and chats
+            <Icon name="chevronDown" size={14} className={collapsed ? "-rotate-90" : ""} />
+          </button>
           <label className="flex items-center gap-1.5 text-xs text-muted">
             <input
               type="checkbox"
@@ -86,48 +96,69 @@ export default function ProjectsPage() {
             Show archived
           </label>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3 pb-4">
-          {list.isPending && <p className="px-2 text-sm text-muted">Loading…</p>}
+        <nav className="flex-1 overflow-y-auto px-2 pb-4" hidden={collapsed}>
+          {list.isPending && <p className="px-3 text-sm text-muted">Loading…</p>}
           {list.isError && (
-            <p role="alert" className="px-2 text-sm text-danger">
+            <p role="alert" className="px-3 text-sm text-danger">
               Could not load projects.
             </p>
           )}
           {list.isSuccess && list.data.items.length === 0 && (
-            <p className="px-2 text-sm text-muted">No projects yet. Your reviews will appear here.</p>
+            <p className="px-3 text-sm text-muted">No projects yet. Your reviews will appear here.</p>
           )}
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col">
             {list.data?.items.map((p) => (
-              <li key={p.id} className="group rounded-lg hover:bg-raised">
-                <Link className="block px-3 py-2 text-ink no-underline" href={`/projects/${p.id}`}>
-                  <span className="line-clamp-2 text-sm font-medium">{p.title}</span>
-                  <span className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-muted">
-                    <span>{stageLabel(p.status)}</span>
-                    {p.archived_at && <span className="text-mark">Archived</span>}
-                    <span>{new Date(p.updated_at).toLocaleDateString()}</span>
-                  </span>
-                </Link>
-                <div className="flex gap-3 px-3 pb-2 text-xs text-muted opacity-70 group-focus-within:opacity-100 group-hover:opacity-100">
-                  <button className="underline" onClick={() => archive.mutate(p)}>
-                    {p.archived_at ? "Unarchive" : "Archive"}
-                  </button>
-                  {confirmDelete === p.id ? (
-                    <>
-                      <button
-                        className="font-semibold text-danger underline"
-                        onClick={() => remove.mutate(p.id)}
-                      >
-                        Confirm delete
-                      </button>
-                      <button className="underline" onClick={() => setConfirmDelete(null)}>
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button className="text-danger underline" onClick={() => setConfirmDelete(p.id)}>
-                      Delete
-                    </button>
-                  )}
+              <li key={p.id} className="group flex items-start gap-2 rounded-lg px-3 py-2 hover:bg-raised">
+                <span aria-hidden className="mt-1.5 h-2 w-2 shrink-0 rounded-full border border-muted" />
+                <div className="min-w-0 flex-1">
+                  <Link
+                    className="block truncate text-sm text-ink no-underline hover:no-underline"
+                    href={`/projects/${p.id}`}
+                    title={p.title}
+                  >
+                    {p.title}
+                  </Link>
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">
+                    <span className="truncate">
+                      {stageLabel(p.status)}
+                      {p.archived_at ? " · Archived" : ""} · {new Date(p.updated_at).toLocaleDateString()}
+                    </span>
+                    <span className="ml-auto flex shrink-0 items-center gap-1">
+                      {confirmDelete === p.id ? (
+                        <>
+                          <button
+                            className="rounded px-1 font-semibold text-danger hover:bg-canvas"
+                            onClick={() => remove.mutate(p.id)}
+                          >
+                            Delete?
+                          </button>
+                          <button
+                            className="rounded px-1 hover:bg-canvas"
+                            onClick={() => setConfirmDelete(null)}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="rounded px-1 hover:bg-canvas hover:text-ink"
+                            title={p.archived_at ? "Unarchive" : "Archive"}
+                            onClick={() => archive.mutate(p)}
+                          >
+                            {p.archived_at ? "Unarchive" : "Archive"}
+                          </button>
+                          <button
+                            className="rounded px-1 hover:bg-canvas hover:text-danger"
+                            title="Delete"
+                            onClick={() => setConfirmDelete(p.id)}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </span>
+                  </div>
                 </div>
               </li>
             ))}
@@ -156,8 +187,8 @@ export default function ProjectsPage() {
               Sign out
             </button>
           </div>
-          <p className="wordmark mb-2 text-lg text-mark">new review</p>
-          <h1 className="mb-6 text-3xl font-semibold tracking-tight">What do you want to find out?</h1>
+          <h1 className="mb-1 text-3xl font-semibold tracking-tight">New project</h1>
+          <p className="mb-6 text-sm text-muted">What do you want to find out?</p>
           <form
             className="flex flex-col gap-3 rounded-2xl border border-line bg-canvas p-6 shadow-sm"
             onSubmit={(e) => {
