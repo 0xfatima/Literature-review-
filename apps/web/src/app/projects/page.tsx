@@ -202,7 +202,7 @@ export default function ProjectsPage() {
             </label>
             <input
               id="title"
-              className="auth-input"
+              className="field-input"
               required
               maxLength={200}
               placeholder="e.g. Quantum machine learning in clinical practice"
@@ -214,7 +214,7 @@ export default function ProjectsPage() {
             </label>
             <textarea
               id="topic"
-              className="auth-input"
+              className="field-input"
               rows={4}
               required
               maxLength={5000}
@@ -225,7 +225,10 @@ export default function ProjectsPage() {
             <div role="alert" aria-live="polite" className="min-h-5 text-sm text-danger">
               {error}
             </div>
-            <button className="auth-submit" disabled={create.isPending || !title.trim() || !topic.trim()}>
+            <button
+              className="btn w-full rounded-xl py-3"
+              disabled={create.isPending || !title.trim() || !topic.trim()}
+            >
               {create.isPending ? "Creating…" : "Create project"}
             </button>
           </form>

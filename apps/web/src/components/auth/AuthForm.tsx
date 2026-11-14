@@ -2,6 +2,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import AuthFrame from "@/components/auth/AuthFrame";
+import AuthIcon from "@/components/auth/AuthIcon";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import type { RegisterResult } from "@/lib/account";
@@ -65,17 +66,16 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
   }
 
   return (
-    <AuthFrame
-      title={isRegister ? "Create your account" : "Welcome back"}
-      subtitle={isRegister ? "Start your first review in a minute." : "Sign in to continue your reviews."}
-    >
+    <AuthFrame title={isRegister ? "Create Account" : "User Login"}>
       <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="email" className="text-sm font-medium">
+        <div className="relative">
+          <label htmlFor="email" className="sr-only">
             Email
           </label>
+          <AuthIcon kind="user" />
           <input
             id="email"
+            placeholder="Email"
             name="email"
             type="email"
             autoComplete="email"
@@ -85,12 +85,14 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
             onChange={(e) => setEmail(e.target.value)}
           />
         </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="password" className="text-sm font-medium">
+        <div className="relative">
+          <label htmlFor="password" className="sr-only">
             Password
           </label>
+          <AuthIcon kind="lock" />
           <input
             id="password"
+            placeholder="Password"
             name="password"
             type="password"
             required
@@ -100,16 +102,12 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          {isRegister ? (
-            <p id="pw-hint" className="text-xs text-muted">
-              At least 12 characters.
-            </p>
-          ) : (
-            <Link href="/forgot-password" className="self-end text-xs">
-              Forgot your password?
-            </Link>
-          )}
         </div>
+        {isRegister && (
+          <p id="pw-hint" className="-mt-2 px-2 text-xs text-[#59636e]">
+            At least 12 characters.
+          </p>
+        )}
         <div role="alert" aria-live="polite" className="min-h-5 text-sm text-danger">
           {error}
           {unverified && (
@@ -126,20 +124,28 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
         <button type="submit" className="auth-submit" disabled={busy}>
           {busy ? "Please wait…" : isRegister ? "Create account" : "Sign in"}
         </button>
+        {!isRegister && (
+          <Link
+            href="/forgot-password"
+            className="text-center text-xs text-[#59636e] no-underline hover:underline"
+          >
+            Forgot password?
+          </Link>
+        )}
       </form>
-      <p className="text-sm">
+      <p className="mt-10 text-center text-xs text-[#59636e]">
         {isRegister ? (
           <>
-            Already registered?{" "}
+            Already have an account?{" "}
             <Link href={next === "/projects" ? "/login" : `/login?next=${encodeURIComponent(next)}`}>
-              Sign in
+              Sign in <span aria-hidden>→</span>
             </Link>
           </>
         ) : (
           <>
-            New here?{" "}
+            {" "}
             <Link href={next === "/projects" ? "/register" : `/register?next=${encodeURIComponent(next)}`}>
-              Create an account
+              Create your account <span aria-hidden>→</span>
             </Link>
           </>
         )}

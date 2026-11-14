@@ -98,11 +98,17 @@ a {
   .btn-danger {
     @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-danger/60 px-3 py-1.5 text-sm text-danger hover:bg-danger/10;
   }
-  .auth-input {
+  .field-input {
     @apply w-full rounded-xl border border-line bg-raised px-4 py-3 text-sm text-ink placeholder:text-muted focus:border-mark focus:outline-none focus:ring-2 focus:ring-mark/30;
   }
+  /* Sign-in fields and button, after the reference design: soft grey pills with an icon, a gradient pill button
+   from ice blue to the app's golden/olive. Fixed colours: the sign-in page is always light. */
+  .auth-input {
+    @apply w-full rounded-xl border-0 bg-[#ececec] py-3 pl-12 pr-4 text-sm text-[#1f2328] placeholder:text-[#7a7f85] focus:outline-none focus:ring-2 focus:ring-[#8fc1dc];
+  }
   .auth-submit {
-    @apply w-full rounded-xl bg-mark px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:brightness-110 disabled:opacity-60;
+    @apply w-full rounded-full py-3 text-sm font-semibold uppercase tracking-wide text-white shadow-sm transition hover:brightness-110 disabled:opacity-60;
+    background: linear-gradient(90deg, #3f7fa3 0%, #6f8a52 55%, #8a5a00 100%);
   }
   /* The Prismatic wordmark: lowercase italic display serif from the system (no web fonts are fetched). */
   .wordmark {
