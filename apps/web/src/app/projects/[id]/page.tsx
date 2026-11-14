@@ -1,5 +1,5 @@
 "use client";
-import { PrismMark } from "@/components/brand/Logo";
+import { Wordmark } from "@/components/brand/Logo";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -405,9 +405,9 @@ function ProjectWorkspace({ id }: { id: string }) {
         <Link
           href="/projects"
           aria-label="Prismatic home"
-          className="mr-1 shrink-0 no-underline hover:no-underline"
+          className="mr-1 shrink-0 text-ink no-underline hover:no-underline"
         >
-          <PrismMark size={22} />
+          <Wordmark className="text-lg" />
         </Link>
         <Link
           href="/projects"
